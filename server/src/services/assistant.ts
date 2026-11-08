@@ -39,10 +39,12 @@ export function createAssistant(database: Database.Database, fetcher: typeof fet
   }
   function selectSession(id?: unknown): AssistantState {
     if (busy) throw assistantError('AI 正在处理消息，请稍候再切换会话', 409)
-    if (state().pending) throw assistantError('请先撤销或确定待处理修改，再开始或切换会话', 409)
     return database.transaction(() => {
+      const current = state()
+      if (current.pending) throw assistantError('请先撤销或确定待处理修改，再开始或切换会话', 409)
       let sessionId: string
       if (id === undefined) {
+        if (!current.turns.length) return current
         sessionId = randomUUID()
         database.prepare('INSERT INTO assistant_sessions(id,title,created_at) VALUES (?,?,?)').run(sessionId, '新会话', new Date().toISOString())
       } else {
@@ -51,7 +53,7 @@ export function createAssistant(database: Database.Database, fetcher: typeof fet
       }
       writeSetting('assistant.currentSession', sessionId)
       return state()
-    })()
+    }).immediate()
   }
   function key(): string {
     return String(readSetting(database, KEY, ''))

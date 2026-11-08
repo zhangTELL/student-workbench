@@ -169,13 +169,23 @@ test('已有打卡日期不被重复插入，原型字段不能绕过允许字�
 test('新会话隔离上下文，历史可切回，当前会话与标题在服务重建后保留', async t => {
   const reply = { choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: '已记住本会话。' } }] }
   const s = setup([reply, reply]); t.after(() => s.app.close()); await s.key()
+  const initial = await s.app.inject({ method: 'POST', url: '/api/assistant/sessions' })
+  assert.equal(initial.statusCode, 200, initial.body)
+  assert.equal(initial.json().sessionId, 'main')
+  assert.equal(initial.json().sessions.length, 1)
   const first = (await s.chat()).json().turn
-  const created = await s.app.inject({ method: 'POST', url: '/api/assistant/sessions' })
+  const [created, repeated] = await Promise.all([
+    s.app.inject({ method: 'POST', url: '/api/assistant/sessions' }),
+    s.app.inject({ method: 'POST', url: '/api/assistant/sessions' }),
+  ])
   assert.equal(created.statusCode, 200, created.body)
   const next = created.json()
   assert.notEqual(next.sessionId, first.sessionId)
   assert.equal(next.turns.length, 0)
   assert.equal(next.sessions.length, 2)
+  assert.equal(repeated.statusCode, 200, repeated.body)
+  assert.equal(repeated.json().sessionId, next.sessionId)
+  assert.equal(repeated.json().sessions.length, 2)
   const second = (await s.app.inject({ method: 'POST', url: '/api/assistant/chat', payload: { message: '这是第二个会话' } })).json().turn
   const messages = s.requests[1].messages as { role: string; content: string }[]
   assert.equal(messages.length, 2, '新会话不能附带旧消息')
