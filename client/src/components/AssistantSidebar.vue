@@ -1,22 +1,30 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, toRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ChatDotRound, Close, Setting, Position, RefreshLeft, Check, Plus } from '@element-plus/icons-vue'
+import { ChatDotRound, Clock, Close, Setting, Position, RefreshLeft, Check, Plus } from '@element-plus/icons-vue'
 import type { AssistantTarget, AssistantTurn } from '@wb/shared'
-import { assistant, loadAssistant, resolveAssistant, switchAssistantSession, sendAssistant, targetLocation } from '../stores/assistant'
+import { assistant, loadAssistant, openAssistantChat, resolveAssistant, switchAssistantSession, sendAssistant, targetLocation } from '../stores/assistant'
 import { hasUnsavedEdits } from '../composables/useUnsavedChanges'
 import AssistantSettings from './AssistantSettings.vue'
+import PanelDivider from './PanelDivider.vue'
 import { assistantLayout } from '../stores/assistantLayout'
 
 const route = useRoute()
 const router = useRouter()
-const configVisible = ref(false)
+const settingsTab = 'settings'
+const tabs = ref<string[]>([])
+const historyVisible = ref(false)
+const tabList = ref<HTMLElement>()
+const configVisible = computed(() => assistant.view === 'settings')
+const activeTab = computed(() => configVisible.value ? settingsTab : assistant.state.sessionId)
+const sessionBusy = computed(() => assistant.sending || assistant.state.busy || assistant.switching)
+const chatTabCount = computed(() => tabs.value.filter(id => id !== settingsTab).length)
 const messagesEl = ref<HTMLElement>()
 const localMessage = ref('')
 const following = ref(true)
-const resizing = ref(false)
 const width = toRef(assistantLayout, 'width')
 const viewportWidth = ref(window.innerWidth)
+const maxWidth = computed(() => Math.max(320, viewportWidth.value - 560))
 const name = computed(() => assistant.config?.name || 'AI助手')
 const canSend = computed(() => !!assistant.config?.configured && !assistant.sending && !assistant.state.busy && !assistant.state.pending && !!assistant.draft.trim())
 let poll: ReturnType<typeof setInterval> | undefined
@@ -24,43 +32,17 @@ let refreshing = false
 let initialized = false
 let seenRevision = ''
 let seenSession = ''
-let drag: { x: number; width: number; userSelect: string; cursor: string } | null = null
 let preferredWidth = assistantLayout.defaultWidth
-function limitWidth(value: number) { return Math.round(Math.max(320, Math.min(value, Math.max(320, window.innerWidth - 560)))) }
 function applyWidth() {
   document.documentElement.style.setProperty('--assistant-width', width.value + 'px')
   document.documentElement.style.setProperty('--assistant-inset', assistant.open && window.innerWidth >= 1000 ? width.value + 'px' : '0px')
 }
-function onResize() { viewportWidth.value = window.innerWidth; if (window.innerWidth >= 1000) width.value = limitWidth(preferredWidth); applyWidth() }
-function rememberWidth() { preferredWidth = width.value }
-function beginResize(event: PointerEvent) {
-  if (event.button !== 0) return
-  event.preventDefault()
-  drag = { x: event.clientX, width: width.value, userSelect: document.body.style.userSelect, cursor: document.body.style.cursor }
-  resizing.value = true
-  document.body.style.userSelect = 'none'
-  document.body.style.cursor = 'col-resize'
-  ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
-}
-function moveResize(event: PointerEvent) {
-  if (!drag) return
-  width.value = limitWidth(drag.width + drag.x - event.clientX)
+function onResize() {
+  viewportWidth.value = window.innerWidth
+  if (viewportWidth.value >= 1000) width.value = Math.round(Math.max(320, Math.min(preferredWidth, maxWidth.value)))
   applyWidth()
 }
-function endResize() {
-  if (!drag) return
-  document.body.style.userSelect = drag.userSelect
-  document.body.style.cursor = drag.cursor
-  drag = null
-  resizing.value = false
-  rememberWidth()
-}
-function resizeWithKeyboard(event: KeyboardEvent) {
-  if (!['ArrowLeft', 'ArrowRight', 'Home'].includes(event.key)) return
-  event.preventDefault()
-  width.value = limitWidth(event.key === 'Home' ? assistantLayout.defaultWidth : width.value + (event.key === 'ArrowLeft' ? 24 : -24))
-  applyWidth(); rememberWidth()
-}
+function rememberWidth(value: number) { preferredWidth = value }
 function onScroll() {
   const el = messagesEl.value
   if (el) following.value = el.scrollHeight - el.scrollTop - el.clientHeight < 64
@@ -72,19 +54,59 @@ async function toLatest() {
   if (el) el.scrollTop = el.scrollHeight
 }
 async function changeSession(id?: string) {
-  if (await switchAssistantSession(id)) {
-    configVisible.value = false
+  const previousId = assistant.state.sessionId
+  if (id !== previousId && !await switchAssistantSession(id)) return false
+  openTab(assistant.state.sessionId)
+  if (assistant.state.sessionId !== previousId) {
     localMessage.value = ''
     seenSession = assistant.state.sessionId
     const latest = assistant.state.turns.at(-1)
     seenRevision = latest ? `${latest.id}-${latest.status}` : ''
     await toLatest()
   }
+  return true
 }
 async function launchNewSession() {
-  assistant.open = true
-  configVisible.value = false
+  openAssistantChat()
+  historyVisible.value = false
   await changeSession()
+}
+function openTab(id: string) {
+  if (!tabs.value.includes(id)) tabs.value.push(id)
+}
+function tabTitle(id: string) {
+  return id === settingsTab ? '设置' : assistant.state.sessions.find(session => session.id === id)?.title ?? '新会话'
+}
+function openSettings() {
+  openTab(settingsTab)
+  historyVisible.value = false
+  assistant.view = 'settings'
+}
+async function selectChat(id: string) {
+  openAssistantChat()
+  if (await changeSession(id)) historyVisible.value = false
+}
+function canCloseTab(id: string) {
+  return id === settingsTab || (chatTabCount.value > 1 && (id !== assistant.state.sessionId || (!sessionBusy.value && !assistant.state.pending)))
+}
+async function closeTab(id: string) {
+  if (!canCloseTab(id)) return
+  if (id === settingsTab) assistant.view = 'chat'
+  else if (id === assistant.state.sessionId) {
+    const index = tabs.value.indexOf(id)
+    const neighbors = [...tabs.value.slice(index + 1), ...tabs.value.slice(0, index).reverse()]
+    const nextChat = neighbors.find(tab => tab !== settingsTab)
+    if (!nextChat || !await changeSession(nextChat)) return
+  }
+  tabs.value = tabs.value.filter(tab => tab !== id)
+}
+function moveTabFocus(event: KeyboardEvent, index: number) {
+  const buttons = tabList.value?.querySelectorAll<HTMLButtonElement>('[role="tab"]')
+  if (!buttons?.length || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+  event.preventDefault()
+  const offset = event.key === 'ArrowLeft' ? -1 : 1
+  const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (index + offset + buttons.length) % buttons.length
+  buttons[next].focus()
 }
 async function locate(target: AssistantTarget, turn: AssistantTurn) {
   if (hasUnsavedEdits()) { assistant.error = 'AI 修改已就绪，请先保存当前草稿，再点击修改条目定位。'; return }
@@ -131,22 +153,33 @@ async function decide(turn: AssistantTurn, action: 'confirm' | 'undo') {
 }
 function onShortcut(event: KeyboardEvent) {
   if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'k') { event.preventDefault(); assistant.open = !assistant.open }
-  if (event.key === 'Escape' && assistant.open) assistant.open = false
+  if (event.key === 'Escape' && assistant.open) {
+    if (historyVisible.value) historyVisible.value = false
+    else assistant.open = false
+  }
 }
 watch(() => assistant.open, open => {
-  if (open) { preferredWidth = assistantLayout.defaultWidth; onResize(); void refresh(); void toLatest() }
-  else { endResize(); applyWidth() }
+  if (open) { preferredWidth = assistantLayout.defaultWidth; onResize(); void refresh(); if (following.value) void toLatest() }
+  else { historyVisible.value = false; applyWidth() }
 })
+watch(width, applyWidth)
 watch(() => assistantLayout.defaultWidth, value => { preferredWidth = value; onResize() })
 // 分别监听标量；轮询仅替换对象时不触发滚动。阅读历史期间新消息也不抢位置。
 watch([() => assistant.state.turns.at(-1)?.id, () => assistant.state.turns.at(-1)?.status, () => assistant.sending], () => { if (following.value) void toLatest() })
 watch(() => assistant.state.sessionId, () => { localMessage.value = ''; void toLatest() })
+watch(() => assistant.state.sessions.length ? assistant.state.sessionId : '', id => { if (id) openTab(id) }, { immediate: true })
+watch(configVisible, visible => { if (!visible && following.value) void toLatest() })
+watch([activeTab, () => assistant.open], async () => {
+  if (!assistant.open) return
+  await nextTick()
+  tabList.value?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+})
 onMounted(() => {
   onResize(); void refresh(); poll = setInterval(() => { void refresh() }, 4000)
   window.addEventListener('keydown', onShortcut); window.addEventListener('resize', onResize)
-  if (route.query.assistant === 'open') assistant.open = true
+  if (route.query.assistant === 'open') openAssistantChat()
 })
-onBeforeUnmount(() => { endResize(); if (poll) clearInterval(poll); window.removeEventListener('keydown', onShortcut); window.removeEventListener('resize', onResize) })
+onBeforeUnmount(() => { if (poll) clearInterval(poll); window.removeEventListener('keydown', onShortcut); window.removeEventListener('resize', onResize) })
 </script>
 
 <template>
@@ -154,23 +187,52 @@ onBeforeUnmount(() => { endResize(); if (poll) clearInterval(poll); window.remov
     <el-icon :size="21"><ChatDotRound /></el-icon><span>新建对话</span><i v-if="assistant.state.pending" class="assistant-pending-dot" />
   </button>
   <Teleport to="body">
-  <div v-if="assistant.open" class="assistant-divider" :class="{ resizing }" role="separator" aria-label="调整 AI 侧栏宽度" aria-orientation="vertical" :aria-valuenow="width" :aria-valuemin="320" :aria-valuemax="Math.max(320, viewportWidth - 560)" tabindex="0" @pointerdown="beginResize" @pointermove="moveResize" @pointerup="endResize" @pointercancel="endResize" @lostpointercapture="endResize" @keydown="resizeWithKeyboard" />
-  <aside v-if="assistant.open" class="assistant-panel" aria-label="AI 助手侧栏">
+  <el-button text class="assistant-toggle" :class="{ 'is-active': assistant.open }"
+    :aria-label="assistant.open ? '收起 AI 侧栏' : '展开 AI 侧栏'" :title="assistant.open ? '收起 AI 侧栏' : '展开 AI 侧栏'"
+    :aria-expanded="assistant.open" aria-controls="assistant-panel" @click="assistant.open = !assistant.open">
+    <el-icon :size="20"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" stroke="currentColor" stroke-width="1.7" /><path d="M15 4v16" stroke="currentColor" stroke-width="1.7" /><path v-if="assistant.open" d="M17 8h2v8h-2z" fill="currentColor" /></svg></el-icon>
+  </el-button>
+  <PanelDivider v-if="assistant.open" v-model="width" class="assistant-divider" side="right" label="调整 AI 侧栏宽度"
+    :min="320" :max="maxWidth" :default-width="assistantLayout.defaultWidth" @change="rememberWidth" />
+  <aside v-show="assistant.open" id="assistant-panel" class="assistant-panel" aria-label="AI 助手侧栏">
     <header class="assistant-head">
-      <div><strong>{{ name }}</strong><small>DeepSeek V4.1 Flash</small></div>
-      <el-button text :icon="Plus" aria-label="新会话" title="新会话" :disabled="assistant.sending || assistant.state.busy || assistant.switching" @click="changeSession()" />
-      <el-button text :icon="Setting" aria-label="AI 助手设置" title="助手与桌宠设置" :class="{ 'is-active': configVisible }" @click="configVisible = !configVisible" />
-      <el-button text :icon="Close" aria-label="关闭 AI 助手" @click="assistant.open = false" />
+      <strong>{{ name }}</strong><small>DeepSeek V4.1 Flash</small>
     </header>
-    <AssistantSettings v-if="configVisible" />
-    <div v-show="!configVisible" class="assistant-session">
-      <el-select :model-value="assistant.state.sessionId" aria-label="历史会话" size="small" :disabled="assistant.sending || assistant.state.busy || assistant.switching" @change="changeSession">
-        <el-option v-for="session in assistant.state.sessions" :key="session.id" :value="session.id" :label="session.title" />
-      </el-select>
-      <span>会话</span>
+    <div class="assistant-workspace">
+      <div ref="tabList" class="assistant-tabs" role="tablist" aria-label="AI 标签页">
+        <div v-for="(id, index) in tabs" :key="id" class="assistant-tab" :class="{ selected: activeTab === id }" role="presentation">
+          <button type="button" class="tab-title" role="tab" :aria-selected="activeTab === id" :tabindex="activeTab === id ? 0 : -1"
+            :aria-controls="id === settingsTab ? 'assistant-settings-tab' : 'assistant-chat-tab'" :title="tabTitle(id)"
+            @click="id === settingsTab ? openSettings() : selectChat(id)" @keydown="moveTabFocus($event, index)" @keydown.delete.prevent="closeTab(id)">
+            <el-icon><component :is="id === settingsTab ? Setting : ChatDotRound" /></el-icon><span>{{ tabTitle(id) }}</span>
+          </button>
+          <button v-if="canCloseTab(id)" type="button" class="tab-close" :aria-label="`关闭标签 ${tabTitle(id)}`" title="关闭标签" @click="closeTab(id)"><el-icon><Close /></el-icon></button>
+        </div>
+      </div>
+      <div class="assistant-tools">
+        <el-button text :icon="Setting" aria-label="AI 助手设置" title="AI 助手设置" :class="{ 'is-active': configVisible }" @click="openSettings" />
+        <el-popover v-model:visible="historyVisible" trigger="click" placement="bottom-end" :width="258" :teleported="false">
+          <template #reference>
+            <el-button text :icon="Clock" aria-label="会话记录" title="会话记录" :aria-expanded="historyVisible" />
+          </template>
+          <div class="assistant-history" @keydown.esc.stop="historyVisible = false">
+            <strong>会话记录</strong>
+            <p v-if="!assistant.state.sessions.length">正在读取会话…</p>
+            <button v-for="session in assistant.state.sessions" :key="session.id" type="button" :class="{ current: session.id === assistant.state.sessionId }"
+              :disabled="session.id !== assistant.state.sessionId && sessionBusy" @click="selectChat(session.id)">
+              <span>{{ session.title }}</span><el-icon v-if="session.id === assistant.state.sessionId"><Check /></el-icon>
+              <time :datetime="session.createdAt">{{ new Date(session.createdAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) }}</time>
+            </button>
+          </div>
+        </el-popover>
+        <el-button text :icon="Plus" aria-label="新建会话" title="新建会话" :disabled="sessionBusy" @click="launchNewSession" />
+      </div>
     </div>
-    <div v-show="!configVisible" ref="messagesEl" class="assistant-messages" aria-live="polite" @scroll="onScroll">
-      <div v-if="!assistant.config?.configured" class="assistant-connect"><p>填写自己的 DeepSeek API Key 后即可开始。</p><el-button size="small" @click="configVisible = true">连接 DeepSeek</el-button></div>
+    <el-alert v-if="configVisible && assistant.error" :title="assistant.error" type="error" show-icon @close="assistant.error = ''" />
+    <AssistantSettings v-if="tabs.includes(settingsTab)" v-show="configVisible" id="assistant-settings-tab" role="tabpanel" />
+    <section v-show="!configVisible" id="assistant-chat-tab" class="assistant-chat" role="tabpanel" :aria-label="tabTitle(assistant.state.sessionId)">
+    <div ref="messagesEl" class="assistant-messages" aria-live="polite" @scroll="onScroll">
+      <div v-if="!assistant.config?.configured" class="assistant-connect"><p>填写自己的 DeepSeek API Key 后即可开始。</p><el-button size="small" @click="openSettings">连接 DeepSeek</el-button></div>
       <div v-if="!assistant.state.turns.length" class="assistant-welcome">
         <span class="assistant-spark">✦</span><h3>聊一聊，也能帮你办事</h3>
         <p>改课表、记倒计日、整理笔记，直接告诉我。</p>
@@ -189,13 +251,14 @@ onBeforeUnmount(() => { endResize(); if (poll) clearInterval(poll); window.remov
       <div v-if="assistant.sending || assistant.state.busy" class="thinking"><span />正在读取相关记录并处理…</div>
       <p v-if="localMessage" class="assistant-feedback" role="status">{{ localMessage }}</p>
     </div>
-    <div v-if="!configVisible && !following" class="latest-action"><el-button size="small" round @click="toLatest">↓ 回到最新</el-button></div>
-    <footer v-show="!configVisible" class="assistant-compose">
+    <div v-if="!following" class="latest-action"><el-button size="small" round @click="toLatest">↓ 回到最新</el-button></div>
+    <footer class="assistant-compose">
       <el-alert v-if="assistant.error" :title="assistant.error" type="error" show-icon :closable="false" />
       <p v-if="assistant.state.pending" class="pending-hint">请先撤销或确定上方修改，再继续发送。</p>
       <el-input v-model="assistant.draft" type="textarea" :autosize="{ minRows: 2, maxRows: 6 }" maxlength="12000" aria-label="发给 AI 的消息" placeholder="一句话告诉我想做什么…" @keydown.ctrl.enter.prevent="submit" @keydown.meta.enter.prevent="submit" />
       <div class="compose-actions"><small>Ctrl + Enter 发送</small><el-button type="primary" :icon="Position" :disabled="!canSend" :loading="assistant.sending" @click="submit">发送</el-button></div>
     </footer>
+    </section>
   </aside>
   </Teleport>
 </template>
@@ -205,14 +268,37 @@ onBeforeUnmount(() => { endResize(); if (poll) clearInterval(poll); window.remov
 .assistant-launch:disabled { opacity: .55; cursor: wait; }
 .assistant-pending-dot { width: 7px; height: 7px; background: var(--el-color-warning); border-radius: 50%; }
 .assistant-panel { position: fixed; inset: 0 0 0 auto; width: var(--assistant-width, 420px); z-index: 1800; background: var(--el-bg-color); color: var(--el-text-color-primary); display: flex; flex-direction: column; overflow: hidden; }
-.assistant-divider { position: fixed; top: 0; bottom: 0; right: calc(var(--assistant-width, 420px) - 5px); width: 10px; z-index: 1801; cursor: col-resize; touch-action: none; }
-.assistant-divider::after { content: ''; position: absolute; inset: 0 auto 0 4px; width: 2px; background: #202020; }
-.assistant-divider:hover::after,.assistant-divider.resizing::after,.assistant-divider:focus-visible::after { width: 3px; background: var(--el-color-primary); }
-.assistant-session { padding: 10px 16px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid var(--el-border-color-lighter); }.assistant-session .el-select { flex: 1; min-width: 0; }.assistant-session > span { font-size: 11px; color: var(--el-text-color-secondary); }
+.assistant-divider { position: fixed; top: 0; bottom: 0; right: calc(var(--assistant-width, 420px) - 5px); z-index: 1801; }
+.assistant-toggle { position: fixed; top: 6px; right: 16px; z-index: 1802; width: 32px; height: 32px; padding: 0; }
+.assistant-toggle.is-active, .assistant-tools .is-active { color: var(--el-color-primary); background: var(--el-color-primary-light-9); }
+.assistant-workspace { display: flex; align-items: stretch; gap: 4px; padding-inline: 8px; border-bottom: 1px solid var(--el-border-color-light); background: var(--el-fill-color-extra-light); }
+.assistant-tabs { display: flex; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: thin; }
+.assistant-tab { display: flex; align-items: stretch; flex-shrink: 0; max-width: 156px; border-inline-end: 1px solid var(--el-border-color-lighter); box-shadow: inset 0 2px transparent; }
+.assistant-tab.selected { background: var(--el-bg-color); box-shadow: inset 0 2px var(--el-color-primary); }
+.tab-title, .tab-close { display: flex; align-items: center; border: 0; background: transparent; color: var(--el-text-color-secondary); cursor: pointer; font: inherit; }
+.tab-title { min-width: 0; gap: 6px; padding: 8px; font-size: 12px; }
+.tab-title span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.selected .tab-title { color: var(--el-text-color-primary); }
+.tab-close { align-self: center; justify-content: center; margin-right: 4px; padding: 3px; border-radius: 4px; font-size: 12px; }
+.tab-title:hover, .tab-close:hover { background: var(--el-fill-color-light); color: var(--el-text-color-primary); }
+.tab-title:focus-visible, .tab-close:focus-visible, .assistant-history button:focus-visible { outline: 2px solid var(--el-color-primary); outline-offset: -2px; }
+.assistant-tools { display: flex; flex: none; align-items: center; gap: 2px; }
+.assistant-tools .el-button { width: 30px; height: 30px; padding: 0; margin: 0; }
+.assistant-history { display: flex; flex-direction: column; gap: 4px; max-height: min(340px, 55dvh); overflow: auto; }
+.assistant-history > strong { padding: 4px 8px; font-size: 12px; color: var(--el-text-color-secondary); }
+.assistant-history > p { margin: 0; padding: 8px; font-size: 12px; }
+.assistant-history button { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 3px 8px; padding: 7px 8px; border: 0; border-radius: 4px; text-align: left; background: transparent; color: var(--el-text-color-primary); cursor: pointer; font: inherit; }
+.assistant-history button.current, .assistant-history button:hover { background: var(--el-fill-color-light); }
+.assistant-history button.current .el-icon { color: var(--el-color-primary); }
+.assistant-history button:disabled { opacity: .55; cursor: wait; }
+.assistant-history button > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.assistant-history time { grid-column: 1 / -1; font-size: 11px; color: var(--el-text-color-secondary); }
+.assistant-chat { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .assistant-connect { font-size: 12px; line-height: 1.7; background: var(--el-fill-color-light); padding: 12px; border-radius: 8px; margin-bottom: 20px; }.assistant-connect p { margin-top: 0; }
 .latest-action { height: 0; position: relative; text-align: center; bottom: 36px; z-index: 1; }
-.assistant-head { display: flex; align-items: center; gap: 4px; padding: 16px; border-bottom: 1px solid var(--el-border-color-lighter); }
-.assistant-head > div { flex: 1; min-width: 0; }.assistant-head strong { display: block; font-size: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.assistant-head small { display: block; font-size: 11px; color: var(--el-text-color-secondary); margin-top: 4px; }.assistant-head > .el-button { margin-left: 0; flex-shrink: 0; }
+.assistant-head { flex-shrink: 0; padding: 11px 60px 11px 16px; border-bottom: 1px solid var(--el-border-color-lighter); }
+.assistant-head strong { display: block; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.assistant-head small { display: block; font-size: 11px; color: var(--el-text-color-secondary); margin-top: 3px; }
 .assistant-messages { flex: 1; min-height: 80px; overflow-y: auto; padding: 18px 16px; overscroll-behavior: contain; scrollbar-width: thin; }.assistant-welcome { padding: 20px 0; }.assistant-spark { font-size: 36px; color: var(--el-color-primary); }.assistant-welcome h3 { font-size: 19px; margin: 14px 0 8px; }.assistant-welcome p { font-size: 13px; color: var(--el-text-color-secondary); line-height: 1.7; }.assistant-welcome button { display: flex; justify-content: space-between; width: 100%; text-align: left; padding: 12px; margin-top: 8px; background: var(--el-fill-color-light); border: 1px solid var(--el-border-color-lighter); border-radius: 8px; color: var(--el-text-color-regular); cursor: pointer; font: inherit; font-size: 12px; gap: 8px; }
 .assistant-turn { margin-bottom: 26px; }.user-message { margin-left: 24px; padding: 11px 13px; background: var(--el-color-primary-light-9); border-radius: 12px 12px 2px 12px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.7; }.ai-message { margin-top: 16px; }.speaker { color: var(--el-color-primary); font-size: 11px; font-weight: 600; }.ai-message p { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.8; margin: 6px 0 12px; }
 .assistant-changes { border: 1px solid var(--el-border-color); border-radius: 9px; padding: 10px; }.assistant-changes > button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 4px; background: transparent; border: none; border-bottom: 1px solid var(--el-border-color-lighter); color: inherit; cursor: pointer; text-align: left; }.assistant-changes > button span { font-size: 10px; padding: 3px 5px; border-radius: 4px; color: var(--el-color-primary); background: var(--el-color-primary-light-9); }.assistant-changes > button b { font-size: 12px; font-weight: 500; flex: 1; overflow-wrap: anywhere; }.assistant-changes details { font-size: 12px; margin: 10px 0; }.assistant-changes summary { cursor: pointer; color: var(--el-text-color-secondary); }.change-diff { margin: 12px 0; }.change-diff pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 220px; overflow: auto; background: var(--el-fill-color-light); padding: 8px; font-size: 11px; }.assistant-decision { display: flex; justify-content: flex-end; margin-top: 12px; }.resolved-state { display: block; margin-top: 12px; color: var(--el-text-color-secondary); }

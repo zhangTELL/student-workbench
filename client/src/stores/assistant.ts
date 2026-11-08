@@ -5,16 +5,33 @@ import { hasUnsavedEdits } from '../composables/useUnsavedChanges'
 
 export const assistant = reactive({
   open: false, sending: false, resolving: false, switching: false, loading: false, error: '', draft: '',
+  view: 'chat' as 'chat' | 'settings',
   config: null as AssistantConfig | null,
   state: { sessionId: 'main', sessions: [], turns: [], pending: null, busy: false } as AssistantState,
 })
 let loadVersion = 0
+const drafts = new Map<string, string>()
+
+export function openAssistantChat() {
+  assistant.view = 'chat'
+  assistant.open = true
+}
+
+function applyAssistantState(state: AssistantState) {
+  const previousId = assistant.state.sessionId
+  if (previousId !== state.sessionId) {
+    if (assistant.draft) drafts.set(previousId, assistant.draft)
+    else drafts.delete(previousId)
+    assistant.draft = drafts.get(state.sessionId) ?? ''
+  }
+  assistant.state = state
+}
 export async function loadAssistant() {
   const version = ++loadVersion
   const [config, state] = await Promise.all([get<AssistantConfig>('/api/assistant/config'), get<AssistantState>('/api/assistant/state')])
   if (version !== loadVersion) return
   assistant.config = config
-  assistant.state = state
+  applyAssistantState(state)
 }
 export async function saveAssistantKey(apiKey: string) {
   assistant.config = await put<AssistantConfig>('/api/assistant/config', { apiKey })
@@ -31,8 +48,7 @@ export async function switchAssistantSession(id?: string) {
   try {
     const state = id ? await put<AssistantState>('/api/assistant/session', { id }) : await post<AssistantState>('/api/assistant/sessions')
     ++loadVersion
-    assistant.state = state
-    assistant.draft = ''
+    applyAssistantState(state)
     return true
   } catch (error) { assistant.error = (error as Error).message; return false }
   finally { assistant.switching = false }

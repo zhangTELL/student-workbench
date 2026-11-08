@@ -13,6 +13,7 @@ import { Expand, Fold } from '@element-plus/icons-vue'
 import { useCompactLayout } from '../composables/useCompactLayout'
 import AssistantSidebar from '../components/AssistantSidebar.vue'
 import AssistantReviewBar from '../components/AssistantReviewBar.vue'
+import PanelDivider from '../components/PanelDivider.vue'
 import { assistant } from '../stores/assistant'
 import { useAssistantFocus } from '../composables/useAssistantFocus'
 
@@ -22,6 +23,21 @@ const layoutEl = ref<HTMLElement>()
 const compactLayout = useCompactLayout(layoutEl, 1080)
 const navOverride = ref<boolean | null>(null)
 const navCollapsed = computed(() => navOverride.value ?? compactLayout.value)
+const navWidthKey = 'wb.nav.width'
+const navDefaultWidth = 200
+const navMinWidth = 160
+const navMaxWidth = 360
+function readNavWidth() {
+  try {
+    const width = Number(localStorage.getItem(navWidthKey))
+    if (Number.isFinite(width) && width >= navMinWidth) return Math.min(navMaxWidth, width)
+  } catch { /* 使用默认宽度 */ }
+  return navDefaultWidth
+}
+const navWidth = ref(readNavWidth())
+function rememberNavWidth(width: number) {
+  try { localStorage.setItem(navWidthKey, String(width)) } catch { /* 本次调整仍可生效 */ }
+}
 
 interface SubItem {
   key: string
@@ -176,8 +192,8 @@ onUnmounted(() => {
 
 <template>
   <div ref="layoutEl" class="layout" :class="{ 'assistant-open': assistant.open }">
-  <el-container class="layout-inner">
-    <el-aside :width="navCollapsed ? '64px' : '200px'" class="aside" :class="{ collapsed: navCollapsed }">
+  <el-container class="layout-inner" :style="{ '--nav-width': `${navWidth}px` }">
+    <el-aside :width="navCollapsed ? '64px' : 'min(var(--nav-width), 60vw)'" class="aside" :class="{ collapsed: navCollapsed }">
       <div class="logo">
         <AppIcon
           v-show="!navCollapsed"
@@ -223,14 +239,11 @@ onUnmounted(() => {
         <el-button size="small" @click="pomoTogglePause">{{ pomoPaused ? '继续' : '暂停' }}</el-button>
       </div>
     </el-aside>
+    <PanelDivider v-if="!navCollapsed" v-model="navWidth" class="nav-divider" side="left" label="调整左侧导航宽度"
+      :min="navMinWidth" :max="navMaxWidth" :default-width="navDefaultWidth" @change="rememberNavWidth" />
     <el-container class="content-container">
       <el-header height="44px" class="workspace-toolbar">
         <span>{{ route.meta.title || '工作台' }}</span>
-        <el-tooltip :content="assistant.open ? '收起 AI 侧栏' : '展开 AI 侧栏'" placement="bottom-end">
-          <el-button text :class="{ 'is-active': assistant.open }" :aria-label="assistant.open ? '收起 AI 侧栏' : '展开 AI 侧栏'" :aria-expanded="assistant.open" @click="assistant.open = !assistant.open">
-            <el-icon :size="20"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" stroke="currentColor" stroke-width="1.7" /><path d="M15 4v16" stroke="currentColor" stroke-width="1.7" /><path v-if="assistant.open" d="M17 8h2v8h-2z" fill="currentColor" /></svg></el-icon>
-          </el-button>
-        </el-tooltip>
       </el-header>
       <el-main class="main app-main">
         <AssistantReviewBar />
@@ -245,10 +258,11 @@ onUnmounted(() => {
 .layout {
   height: 100%;
 }
-.layout-inner { height: 100%; }
+.layout-inner { height: 100%; position: relative; }
+.nav-divider { position: absolute; top: 0; bottom: 0; left: calc(var(--nav-width) - 5px); z-index: 12; }
+@media (max-width: 600px) { .nav-divider { display: none; } }
 .content-container { min-width: 0; }
 .workspace-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-shrink: 0; border-bottom: 1px solid var(--el-border-color-lighter); color: var(--el-text-color-secondary); font-size: 12px; }
-.workspace-toolbar .is-active { color: var(--el-color-primary); background: var(--el-color-primary-light-9); }
 @media (min-width: 1000px) {
   .assistant-open .content-container { margin-right: var(--assistant-inset, 420px); }
   .assistant-open .app-main { scrollbar-width: none; }

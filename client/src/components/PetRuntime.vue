@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { get } from '../api/http'
-import { assistant, loadAssistant } from '../stores/assistant'
+import { assistant, loadAssistant, openAssistantChat } from '../stores/assistant'
 import '../styles/pet.css'
 const host = ref<HTMLElement>()
 let dispose: (() => void) | undefined
@@ -13,7 +13,7 @@ async function start() {
     if (alive && host.value) dispose = mountPet(host.value)
   } catch (error) { if (alive) console.warn('桌宠暂未连接，请检查后端运行状态。', error) }
 }
-function onChat() { assistant.open = true; void loadAssistant() }
+function onChat() { openAssistantChat(); void loadAssistant() }
 function onChange() { void loadAssistant() }
 onMounted(() => { void start(); document.addEventListener('workbench-assistant-change', onChange); document.addEventListener('workbench-assistant-open', onChat) })
 onBeforeUnmount(() => { alive = false; dispose?.(); document.removeEventListener('workbench-assistant-change', onChange); document.removeEventListener('workbench-assistant-open', onChat) })

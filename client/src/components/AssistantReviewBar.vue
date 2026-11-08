@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { assistant, resolveAssistant, targetLocation } from '../stores/assistant'
+import { assistant, openAssistantChat, resolveAssistant, targetLocation } from '../stores/assistant'
 const route = useRoute()
 const router = useRouter()
 const turn = computed(() => assistant.state.pending)
@@ -18,7 +18,7 @@ async function resolve(action: 'undo' | 'confirm') {
 <template>
   <div v-if="turn" class="ai-review" role="status">
     <div><strong>AI 已修改 {{ turn.changes.length }} 项</strong><small>请核对页面内容，再确定或撤销。</small></div>
-    <el-button size="small" @click="assistant.open = true">查看详情</el-button>
+    <el-button size="small" @click="openAssistantChat">查看详情</el-button>
     <el-button size="small" :loading="assistant.resolving" @click="resolve('undo')">撤销</el-button>
     <el-button size="small" type="primary" :loading="assistant.resolving" @click="resolve('confirm')">确定修改</el-button>
   </div>
