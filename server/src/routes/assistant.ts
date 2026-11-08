@@ -8,6 +8,7 @@ export const assistantRoutes: FastifyPluginAsync<{ database: Database.Database; 
   app.put('/api/assistant/config', async req => assistant.saveConfig((req.body ?? {}) as { apiKey?: unknown; name?: unknown; petDoubleClick?: unknown }))
   app.get('/api/assistant/state', async () => assistant.state())
   app.post('/api/assistant/sessions', async () => assistant.selectSession())
+  app.delete<{ Params: { id: string } }>('/api/assistant/sessions/:id', async req => assistant.deleteSession(req.params.id))
   app.put('/api/assistant/session', async req => {
     const id = (req.body as { id?: unknown })?.id
     if (typeof id !== 'string') throw Object.assign(new Error('请选择会话'), { statusCode: 400 })

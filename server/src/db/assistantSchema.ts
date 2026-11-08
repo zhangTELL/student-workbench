@@ -6,8 +6,9 @@ export const ASSISTANT_SCHEMA_SQL = `
     title TEXT NOT NULL,
     created_at TEXT NOT NULL
   );
-  INSERT OR IGNORE INTO assistant_sessions(id, title, created_at)
-    VALUES ('main', '新会话', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+  INSERT INTO assistant_sessions(id, title, created_at)
+    SELECT 'main', '新会话', strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+    WHERE NOT EXISTS (SELECT 1 FROM assistant_sessions);
   CREATE TABLE IF NOT EXISTS assistant_turns (
     id TEXT PRIMARY KEY,
     session_id TEXT NOT NULL DEFAULT 'main',

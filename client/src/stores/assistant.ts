@@ -1,6 +1,6 @@
 import { reactive } from 'vue'
 import type { AssistantConfig, AssistantState, AssistantTarget, AssistantTurn } from '@wb/shared'
-import { get, post, put } from '../api/http'
+import { del, get, post, put } from '../api/http'
 import { hasUnsavedEdits } from '../composables/useUnsavedChanges'
 
 export const assistant = reactive({
@@ -53,8 +53,24 @@ export async function switchAssistantSession(id?: string) {
   } catch (error) { assistant.error = (error as Error).message; return false }
   finally { assistant.switching = false }
 }
+export async function deleteAssistantSession(id: string) {
+  if (assistant.switching || assistant.sending || assistant.state.busy || assistant.resolving || assistant.state.pending?.sessionId === id) return false
+  assistant.switching = true
+  assistant.error = ''
+  ++loadVersion
+  try {
+    const state = await del<AssistantState>(`/api/assistant/sessions/${encodeURIComponent(id)}`)
+    ++loadVersion
+    applyAssistantState(state)
+    drafts.delete(id)
+    return true
+  } catch (error) {
+    assistant.error = error instanceof Error ? error.message : '删除会话失败，请重试'
+    return false
+  } finally { assistant.switching = false }
+}
 export async function sendAssistant(context: { path: string; entity?: unknown; id?: unknown }): Promise<AssistantTurn | null> {
-  if (assistant.sending || assistant.state.busy || assistant.state.pending || !assistant.draft.trim()) return null
+  if (assistant.switching || assistant.sending || assistant.state.busy || assistant.state.pending || !assistant.draft.trim()) return null
   if (hasUnsavedEdits()) { assistant.error = '当前编辑页还有未保存内容，请先保存或放弃草稿，再让 AI 操作。'; return null }
   const message = assistant.draft.trim()
   assistant.error = ''
@@ -71,7 +87,7 @@ export async function sendAssistant(context: { path: string; entity?: unknown; i
   } finally { assistant.sending = false }
 }
 export async function resolveAssistant(turn: AssistantTurn, action: 'confirm' | 'undo') {
-  if (assistant.resolving) return null
+  if (assistant.resolving || assistant.switching) return null
   if (hasUnsavedEdits()) { assistant.error = '请先保存或放弃编辑页的新修改，再处理 AI 修改。'; return null }
   assistant.resolving = true
   assistant.error = ''

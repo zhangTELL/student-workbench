@@ -37,6 +37,11 @@ export function createAssistant(database: Database.Database, fetcher: typeof fet
   function writeSetting(name: string, value: unknown) {
     database.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(name, encodeSettingValue(name, value))
   }
+  function createSession() {
+    const id = randomUUID()
+    database.prepare('INSERT INTO assistant_sessions(id,title,created_at) VALUES (?,?,?)').run(id, '新会话', new Date().toISOString())
+    return id
+  }
   function selectSession(id?: unknown): AssistantState {
     if (busy) throw assistantError('AI 正在处理消息，请稍候再切换会话', 409)
     return database.transaction(() => {
@@ -45,13 +50,27 @@ export function createAssistant(database: Database.Database, fetcher: typeof fet
       let sessionId: string
       if (id === undefined) {
         if (!current.turns.length) return current
-        sessionId = randomUUID()
-        database.prepare('INSERT INTO assistant_sessions(id,title,created_at) VALUES (?,?,?)').run(sessionId, '新会话', new Date().toISOString())
+        sessionId = createSession()
       } else {
         if (typeof id !== 'string' || !database.prepare('SELECT id FROM assistant_sessions WHERE id = ?').get(id)) throw assistantError('会话不存在', 404)
         sessionId = id
       }
       writeSetting('assistant.currentSession', sessionId)
+      return state()
+    }).immediate()
+  }
+  function deleteSession(id: string): AssistantState {
+    if (busy) throw assistantError('AI 正在处理消息，请稍候再删除会话', 409)
+    return database.transaction(() => {
+      const current = state()
+      if (current.pending?.sessionId === id) throw assistantError('请先撤销或确定此会话的修改，再删除会话', 409)
+      if (!current.sessions.some(session => session.id === id)) throw assistantError('会话不存在', 404)
+      database.prepare('DELETE FROM assistant_turns WHERE session_id = ?').run(id)
+      database.prepare('DELETE FROM assistant_sessions WHERE id = ?').run(id)
+      if (current.sessionId === id) {
+        const next = current.sessions.find(session => session.id !== id)
+        writeSetting('assistant.currentSession', next?.id ?? createSession())
+      }
       return state()
     }).immediate()
   }
@@ -221,5 +240,5 @@ export function createAssistant(database: Database.Database, fetcher: typeof fet
     if (!answer || payload.choices?.[0].finish_reason === 'length') throw assistantError('DeepSeek 未返回完整内容', 502)
     return answer
   }
-  return { state, config, saveConfig, selectSession, chat, finish, whisper, readKey: key, setStatusListener: (listener: typeof statusListener) => { statusListener = listener } }
+  return { state, config, saveConfig, selectSession, deleteSession, chat, finish, whisper, readKey: key, setStatusListener: (listener: typeof statusListener) => { statusListener = listener } }
 }

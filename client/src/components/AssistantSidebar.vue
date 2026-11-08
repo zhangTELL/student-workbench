@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, toRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ChatDotRound, Clock, Close, Setting, Position, RefreshLeft, Check, Plus } from '@element-plus/icons-vue'
-import type { AssistantTarget, AssistantTurn } from '@wb/shared'
-import { assistant, loadAssistant, openAssistantChat, resolveAssistant, switchAssistantSession, sendAssistant, targetLocation } from '../stores/assistant'
+import { ChatDotRound, Clock, Close, Delete, Setting, Position, RefreshLeft, Check, Plus } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import type { AssistantSession, AssistantTarget, AssistantTurn } from '@wb/shared'
+import { assistant, deleteAssistantSession, loadAssistant, openAssistantChat, resolveAssistant, switchAssistantSession, sendAssistant, targetLocation } from '../stores/assistant'
 import { hasUnsavedEdits } from '../composables/useUnsavedChanges'
 import AssistantSettings from './AssistantSettings.vue'
 import PanelDivider from './PanelDivider.vue'
@@ -26,7 +27,7 @@ const width = toRef(assistantLayout, 'width')
 const viewportWidth = ref(window.innerWidth)
 const maxWidth = computed(() => Math.max(320, viewportWidth.value - 560))
 const name = computed(() => assistant.config?.name || 'AI助手')
-const canSend = computed(() => !!assistant.config?.configured && !assistant.sending && !assistant.state.busy && !assistant.state.pending && !!assistant.draft.trim())
+const canSend = computed(() => !!assistant.config?.configured && !sessionBusy.value && !assistant.state.pending && !!assistant.draft.trim())
 let poll: ReturnType<typeof setInterval> | undefined
 let refreshing = false
 let initialized = false
@@ -67,6 +68,7 @@ async function changeSession(id?: string) {
   return true
 }
 async function launchNewSession() {
+  if (sessionBusy.value) return
   openAssistantChat()
   historyVisible.value = false
   await changeSession()
@@ -81,6 +83,7 @@ function openSettings() {
   openTab(settingsTab)
   historyVisible.value = false
   assistant.view = 'settings'
+  assistant.open = true
 }
 async function selectChat(id: string) {
   openAssistantChat()
@@ -99,6 +102,19 @@ async function closeTab(id: string) {
     if (!nextChat || !await changeSession(nextChat)) return
   }
   tabs.value = tabs.value.filter(tab => tab !== id)
+}
+function canDeleteSession(id: string) {
+  return !sessionBusy.value && !assistant.resolving && assistant.state.pending?.sessionId !== id
+}
+async function removeSession(session: AssistantSession) {
+  if (!canDeleteSession(session.id)) return
+  try {
+    await ElMessageBox.confirm(`删除「${session.title}」及其中的全部消息？`, '删除会话', {
+      type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消', confirmButtonType: 'danger',
+    })
+  } catch { return }
+  if (await deleteAssistantSession(session.id)) ElMessage.success('会话已删除')
+  else ElMessage.error(assistant.error || '会话状态已变化，请稍后重试')
 }
 function moveTabFocus(event: KeyboardEvent, index: number) {
   const buttons = tabList.value?.querySelectorAll<HTMLButtonElement>('[role="tab"]')
@@ -152,11 +168,27 @@ async function decide(turn: AssistantTurn, action: 'confirm' | 'undo') {
   }
 }
 function onShortcut(event: KeyboardEvent) {
-  if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'k') { event.preventDefault(); assistant.open = !assistant.open }
+  if (event.defaultPrevented || event.isComposing || (event.target instanceof Element && event.target.closest('[aria-modal="true"]'))) return
   if (event.key === 'Escape' && assistant.open) {
     if (historyVisible.value) historyVisible.value = false
     else assistant.open = false
+    return
   }
+  if (event.getModifierState('AltGraph')) return
+  const key = event.key.toLowerCase()
+  const ctrl = event.ctrlKey && !event.metaKey
+  const shift = event.shiftKey
+  const alt = event.altKey
+  const toggle = shift && !alt && ((ctrl && key === 'b') || ((event.ctrlKey || event.metaKey) && key === 'k'))
+  const settings = ctrl && !shift && !alt && (key === ',' || key === '，' || event.code === 'Comma')
+  const globalNew = ctrl && key === 'n' && ((shift && !alt) || (alt && !shift))
+  const sidebarNew = assistant.open && key === 'n' && !shift && !event.metaKey && ((ctrl && !alt) || (alt && !ctrl))
+  if (!toggle && !settings && !globalNew && !sidebarNew) return
+  event.preventDefault()
+  if (event.repeat) return
+  if (toggle) assistant.open = !assistant.open
+  else if (settings) openSettings()
+  else void launchNewSession()
 }
 watch(() => assistant.open, open => {
   if (open) { preferredWidth = assistantLayout.defaultWidth; onResize(); void refresh(); if (following.value) void toLatest() }
@@ -167,7 +199,13 @@ watch(() => assistantLayout.defaultWidth, value => { preferredWidth = value; onR
 // 分别监听标量；轮询仅替换对象时不触发滚动。阅读历史期间新消息也不抢位置。
 watch([() => assistant.state.turns.at(-1)?.id, () => assistant.state.turns.at(-1)?.status, () => assistant.sending], () => { if (following.value) void toLatest() })
 watch(() => assistant.state.sessionId, () => { localMessage.value = ''; void toLatest() })
-watch(() => assistant.state.sessions.length ? assistant.state.sessionId : '', id => { if (id) openTab(id) }, { immediate: true })
+watch(() => assistant.state, state => {
+  if (!state.sessions.length) return
+  const available = new Set(state.sessions.map(session => session.id))
+  const remaining = tabs.value.filter(id => id === settingsTab || available.has(id))
+  if (remaining.length !== tabs.value.length) tabs.value = remaining
+  openTab(state.sessionId)
+}, { immediate: true })
 watch(configVisible, visible => { if (!visible && following.value) void toLatest() })
 watch([activeTab, () => assistant.open], async () => {
   if (!assistant.open) return
@@ -183,12 +221,13 @@ onBeforeUnmount(() => { if (poll) clearInterval(poll); window.removeEventListene
 </script>
 
 <template>
-  <button class="assistant-launch" aria-label="新建 AI 对话" :title="name + ' · 新建对话'" :disabled="assistant.sending || assistant.state.busy || assistant.switching" @click="launchNewSession">
+  <button class="assistant-launch" aria-label="新建 AI 对话" aria-keyshortcuts="Control+Shift+N Control+Alt+N" :title="name + ' · 新建对话（Ctrl+Shift+N / Ctrl+Alt+N）'" :disabled="sessionBusy" @click="launchNewSession">
     <el-icon :size="21"><ChatDotRound /></el-icon><span>新建对话</span><i v-if="assistant.state.pending" class="assistant-pending-dot" />
   </button>
   <Teleport to="body">
   <el-button text class="assistant-toggle" :class="{ 'is-active': assistant.open }"
-    :aria-label="assistant.open ? '收起 AI 侧栏' : '展开 AI 侧栏'" :title="assistant.open ? '收起 AI 侧栏' : '展开 AI 侧栏'"
+    :aria-label="assistant.open ? '收起 AI 侧栏' : '展开 AI 侧栏'" :title="(assistant.open ? '收起 AI 侧栏' : '展开 AI 侧栏') + '（Ctrl+Shift+B / Ctrl+Shift+K）'"
+    aria-keyshortcuts="Control+Shift+B Control+Shift+K"
     :aria-expanded="assistant.open" aria-controls="assistant-panel" @click="assistant.open = !assistant.open">
     <el-icon :size="20"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" stroke="currentColor" stroke-width="1.7" /><path d="M15 4v16" stroke="currentColor" stroke-width="1.7" /><path v-if="assistant.open" d="M17 8h2v8h-2z" fill="currentColor" /></svg></el-icon>
   </el-button>
@@ -210,7 +249,7 @@ onBeforeUnmount(() => { if (poll) clearInterval(poll); window.removeEventListene
         </div>
       </div>
       <div class="assistant-tools">
-        <el-button text :icon="Setting" aria-label="AI 助手设置" title="AI 助手设置" :class="{ 'is-active': configVisible }" @click="openSettings" />
+        <el-button text :icon="Setting" aria-label="AI 助手设置" aria-keyshortcuts="Control+," title="AI 助手设置（Ctrl+,）" :class="{ 'is-active': configVisible }" @click="openSettings" />
         <el-popover v-model:visible="historyVisible" trigger="click" placement="bottom-end" :width="258" :teleported="false">
           <template #reference>
             <el-button text :icon="Clock" aria-label="会话记录" title="会话记录" :aria-expanded="historyVisible" />
@@ -218,14 +257,18 @@ onBeforeUnmount(() => { if (poll) clearInterval(poll); window.removeEventListene
           <div class="assistant-history" @keydown.esc.stop="historyVisible = false">
             <strong>会话记录</strong>
             <p v-if="!assistant.state.sessions.length">正在读取会话…</p>
-            <button v-for="session in assistant.state.sessions" :key="session.id" type="button" :class="{ current: session.id === assistant.state.sessionId }"
-              :disabled="session.id !== assistant.state.sessionId && sessionBusy" @click="selectChat(session.id)">
-              <span>{{ session.title }}</span><el-icon v-if="session.id === assistant.state.sessionId"><Check /></el-icon>
-              <time :datetime="session.createdAt">{{ new Date(session.createdAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) }}</time>
-            </button>
+            <div v-for="session in assistant.state.sessions" :key="session.id" class="history-row" :class="{ current: session.id === assistant.state.sessionId }">
+              <button type="button" class="history-select" :disabled="session.id !== assistant.state.sessionId && sessionBusy" @click="selectChat(session.id)">
+                <span>{{ session.title }}</span><el-icon v-if="session.id === assistant.state.sessionId"><Check /></el-icon>
+                <time :datetime="session.createdAt">{{ new Date(session.createdAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) }}</time>
+              </button>
+              <button type="button" class="history-delete" :aria-label="`删除会话 ${session.title}`"
+                :title="assistant.state.pending?.sessionId === session.id ? '请先处理待确认修改' : '删除会话'"
+                :disabled="!canDeleteSession(session.id)" @click="removeSession(session)"><el-icon><Delete /></el-icon></button>
+            </div>
           </div>
         </el-popover>
-        <el-button text :icon="Plus" aria-label="新建会话" title="新建会话" :disabled="sessionBusy" @click="launchNewSession" />
+        <el-button text :icon="Plus" aria-label="新建会话" aria-keyshortcuts="Control+N Alt+N" title="新建会话（Ctrl+N / Alt+N）" :disabled="sessionBusy" @click="launchNewSession" />
       </div>
     </div>
     <el-alert v-if="configVisible && assistant.error" :title="assistant.error" type="error" show-icon @close="assistant.error = ''" />
@@ -287,11 +330,15 @@ onBeforeUnmount(() => { if (poll) clearInterval(poll); window.removeEventListene
 .assistant-history { display: flex; flex-direction: column; gap: 4px; max-height: min(340px, 55dvh); overflow: auto; }
 .assistant-history > strong { padding: 4px 8px; font-size: 12px; color: var(--el-text-color-secondary); }
 .assistant-history > p { margin: 0; padding: 8px; font-size: 12px; }
-.assistant-history button { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 3px 8px; padding: 7px 8px; border: 0; border-radius: 4px; text-align: left; background: transparent; color: var(--el-text-color-primary); cursor: pointer; font: inherit; }
-.assistant-history button.current, .assistant-history button:hover { background: var(--el-fill-color-light); }
-.assistant-history button.current .el-icon { color: var(--el-color-primary); }
-.assistant-history button:disabled { opacity: .55; cursor: wait; }
-.assistant-history button > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.history-row { display: flex; align-items: center; padding-right: 4px; border-radius: 4px; }
+.history-row.current, .history-row:hover { background: var(--el-fill-color-light); }
+.history-select, .history-delete { border: 0; border-radius: 4px; background: transparent; cursor: pointer; font: inherit; }
+.history-select { display: grid; flex: 1; min-width: 0; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 3px 8px; padding: 7px 8px; text-align: left; color: var(--el-text-color-primary); }
+.history-select .el-icon { color: var(--el-color-primary); }
+.history-select > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.history-delete { display: grid; place-items: center; width: 28px; height: 28px; flex-shrink: 0; color: var(--el-text-color-secondary); }
+.history-delete:hover:not(:disabled) { color: var(--el-color-danger); background: var(--el-color-danger-light-9); }
+.assistant-history button:disabled { opacity: .55; cursor: not-allowed; }
 .assistant-history time { grid-column: 1 / -1; font-size: 11px; color: var(--el-text-color-secondary); }
 .assistant-chat { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .assistant-connect { font-size: 12px; line-height: 1.7; background: var(--el-fill-color-light); padding: 12px; border-radius: 8px; margin-bottom: 20px; }.assistant-connect p { margin-top: 0; }

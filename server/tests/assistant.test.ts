@@ -205,9 +205,41 @@ test('待确认修改阻止新建和切换会话，撤销后可以开始新会�
   const turn = (await s.chat()).json().turn
   assert.equal((await s.app.inject({ method: 'POST', url: '/api/assistant/sessions' })).statusCode, 409)
   assert.equal((await s.app.inject({ method: 'PUT', url: '/api/assistant/session', payload: { id: 'main' } })).statusCode, 409)
+  assert.equal((await s.app.inject({ method: 'DELETE', url: '/api/assistant/sessions/main' })).statusCode, 409)
+  assert.equal(createAssistant(s.database).state().pending?.id, turn.id)
   assert.equal(createAssistant(s.database).state().sessions.length, 1)
   await s.app.inject({ method: 'POST', url: `/api/assistant/turns/${turn.id}/undo` })
   assert.equal((await s.app.inject({ method: 'POST', url: '/api/assistant/sessions' })).statusCode, 200)
+})
+
+test('删除会话清除其消息，当前会话平滑切换，初始会话在重启后不会复现', async t => {
+  const reply = { choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: '收到。' } }] }
+  const s = setup([reply, reply]); t.after(() => s.app.close()); await s.key()
+  await s.chat()
+  const second = (await s.app.inject({ method: 'POST', url: '/api/assistant/sessions' })).json().sessionId
+  await s.chat()
+  const third = (await s.app.inject({ method: 'POST', url: '/api/assistant/sessions' })).json().sessionId
+  const remove = (id: string) => s.app.inject({ method: 'DELETE', url: `/api/assistant/sessions/${id}` })
+
+  const active = await remove(third)
+  assert.equal(active.statusCode, 200, active.body)
+  assert.equal(active.json().sessionId, second)
+  assert.equal(active.json().turns.length, 1)
+
+  const inactive = await remove('main')
+  assert.equal(inactive.statusCode, 200, inactive.body)
+  assert.equal(inactive.json().sessionId, second)
+  assert.equal(s.database.prepare("SELECT 1 FROM assistant_turns WHERE session_id = 'main'").get(), undefined)
+  assert.equal((await remove('main')).statusCode, 404)
+
+  const last = await remove(second)
+  assert.equal(last.statusCode, 200, last.body)
+  const state = last.json()
+  assert.notEqual(state.sessionId, second)
+  assert.equal(state.sessions.length, 1)
+  assert.equal(state.turns.length, 0)
+  ensureAssistantSchema(s.database)
+  assert.deepEqual(createAssistant(s.database).state(), state)
 })
 
 test('名称和双击偏好独立保存，非法偏好不写入 Key，模型使用自定义称呼', async t => {
@@ -250,6 +282,7 @@ test('桌宠新会话不注入旧记忆，处理消息期间不能切换会话',
   service.selectSession()
   const request = service.chat('新问题', {}, '', [{ role: 'user', content: '旧桌宠私密记忆' }, { role: 'assistant', content: '旧回答' }])
   assert.throws(() => service.selectSession(), /正在处理/)
+  assert.throws(() => service.deleteSession('main'), /正在处理/)
   release()
   await request
   assert.doesNotMatch(JSON.stringify(s.requests), /旧桌宠私密记忆/)
