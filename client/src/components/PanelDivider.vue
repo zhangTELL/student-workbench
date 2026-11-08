@@ -65,6 +65,6 @@ onBeforeUnmount(() => end())
 
 <style scoped>
 .panel-divider { width: 10px; cursor: col-resize; touch-action: none; }
-.panel-divider::after { content: ''; position: absolute; inset: 0 auto 0 4px; width: 2px; background: var(--el-text-color-primary); }
+.panel-divider::after { content: ''; position: absolute; inset: 0 auto 0 4px; width: 2px; background: transparent; }
 .panel-divider:hover::after, .panel-divider.resizing::after, .panel-divider:focus-visible::after { width: 3px; background: var(--el-color-primary); }
 </style>
