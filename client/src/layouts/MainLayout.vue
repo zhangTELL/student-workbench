@@ -323,5 +323,7 @@ onUnmounted(() => {
 .main {
   padding: 20px;
   overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--wb-text-regular) 30%, var(--wb-text-muted)) transparent;
 }
 </style>
