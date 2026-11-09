@@ -121,8 +121,6 @@ pnpm dev:client    # 仅前端
 ├── tools/icon/                  # 图标生成：抠白底（边缘 flood fill）+ 出各档成品 + 透明度自检
 ├── tools/miko_assets.py         # 巫女·和风主题立绘加工（素材/ → client/public/theme-local/，均不入库）
 ├── tools/palette_check.mjs      # 主题配色数值验证（对比度/两两色差口径，调色板改动后重跑）
-├── 交接文档.md                   # ★ 开发交接：实现细节、接口契约、踩坑清单
-└── 开发计划.md                   # 需求与阶段进度
 ```
 
 ---
