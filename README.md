@@ -1,10 +1,10 @@
-# Yoshinove工作台
+# 学生工作台
 
 面向个人的学生工作台：把课表、上课提醒、作业 DDL、健康跑打卡（里程/步数记录与图表分析）、成绩绩点、笔记和 AI 实验整合到一个本地 Web 应用里。
 
 当前形态是**本地 Web 应用**（前后端在本机跑）
 
-Windows 用户可从 [Releases](https://github.com/zhangTELL/yoshinove-workbench/releases/latest) 下载免安装 ZIP，解压后双击「启动工作台.bat」，无需安装 Node、pnpm 或 PowerShell 7。
+Windows 用户可从 [发布](https://github.com/zhangTELL/yoshinove-workbench/releases/latest) 下载免安装 ZIP，解压后双击「启动工作台.bat」，无需安装 Node、pnpm 或 PowerShell 7。
 
 ## AI 助手与桌宠
 
