@@ -7,15 +7,18 @@
  *  ② 样式别写成 `html,body{display:flex}`：那会把根元素也变成 flex 容器，
  *     某些页面会出现整页错位。
  */
-export function wrapPreviewDoc(code: string, opts: { padding?: number; maxHeight?: string } = {}): string {
+export function wrapPreviewDoc(code: string, opts: { padding?: number; maxHeight?: string; hideScrollbars?: boolean } = {}): string {
   const pad = opts.padding ?? 16
   const maxSize = opts.maxHeight ?? 'calc(100vh - 64px)'
-  // 已经是完整文档就原样交给 iframe
-  if (/^\s*<(?:!doctype|html)\b/i.test(code)) return code
+  const scrollbarStyle = opts.hideScrollbars ? 'html,body{scrollbar-width:none!important}' : ''
+  if (/^\s*<(?:!doctype|html)\b/i.test(code)) {
+    return scrollbarStyle ? `${code}\n<style>${scrollbarStyle}</style>` : code
+  }
 
   const style = [
     'html,body{margin:0;background:#fff;color:#111;font-family:system-ui,sans-serif}',
     `body{padding:${pad}px}`,
+    scrollbarStyle,
   ]
   if (/^\s*<svg\b/i.test(code)) {
     style.push(`body{padding:0;display:flex;align-items:center;justify-content:center;min-height:${opts.maxHeight ?? '100vh'}}`)
@@ -25,7 +28,7 @@ export function wrapPreviewDoc(code: string, opts: { padding?: number; maxHeight
 }
 
 /** 模型作品预览与独立 HTML 导出使用相同的文档包装。 */
-export function wrapComparisonPreview(code: string): string {
+export function wrapComparisonPreview(code: string, opts: { hideScrollbars?: boolean } = {}): string {
   const markup = code.replace(/^\s*<\?xml[\s\S]*?\?>\s*/i, '').replace(/^<!doctype\s+svg[^>]*>\s*/i, '')
-  return markup ? wrapPreviewDoc(markup, { padding: 0, maxHeight: '100vh' }) : ''
+  return markup ? wrapPreviewDoc(markup, { padding: 0, maxHeight: '100vh', ...opts }) : ''
 }

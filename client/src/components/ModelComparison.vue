@@ -44,7 +44,6 @@ const filteredTopics = computed(() => {
   return topics.value.filter((topic) => topic.name.toLowerCase().includes(keyword))
 })
 const visibleEntries = computed(() => form.value?.entries.filter((entry) => selectedIds.value.includes(entry.id)) ?? [])
-const gridStyle = computed(() => ({ gridTemplateColumns: `repeat(${Math.max(1, Math.min(3, visibleEntries.value.length))}, minmax(280px, 1fr))` }))
 
 function emptyEntry(index: number): ComparisonEntry {
   return { id: crypto.randomUUID(), name: `模型 ${index}`, code: '', format: 'html', fileName: '' }
@@ -251,8 +250,8 @@ function exportHtml() {
   } catch (e) { ElMessage.error(`导出失败：${(e as Error).message}`) }
 }
 
-function previewDoc(entry: ComparisonEntry): string {
-  return wrapComparisonPreview(previewCodes.value[entry.id] ?? '')
+function previewDoc(entry: ComparisonEntry, hideScrollbars = false): string {
+  return wrapComparisonPreview(previewCodes.value[entry.id] ?? '', { hideScrollbars })
 }
 
 function expand(entry: ComparisonEntry) {
@@ -325,29 +324,27 @@ onBeforeUnmount(() => document.removeEventListener('visibilitychange', onVisibil
             <el-button :icon="Plus" :disabled="busy || form.entries.length >= MAX_COMPARISON_MODELS" @click="addEntry">添加模型</el-button>
           </div>
           <p v-if="visibleEntries.length < 2" class="selection-hint">勾选两个或更多模型，即可并排对比作品。</p>
-          <div class="gallery-scroll">
-            <div class="comparison-grid" :style="gridStyle">
-              <article v-for="entry in visibleEntries" :key="entry.id" class="model-card" :aria-label="`${entry.name} 的作品`">
-                <header class="model-card-head">
-                  <el-input v-model="entry.name" :aria-label="`${entry.id} 的模型名称`" placeholder="模型名称，例如：DeepSeek V3" :disabled="busy" maxlength="120" />
-                  <el-tag v-if="entry.code.trim()" size="small" effect="plain">{{ entry.format.toUpperCase() }}</el-tag>
-                  <el-button text :icon="Delete" :disabled="busy || form.entries.length <= 2" aria-label="移除模型" @click="removeEntry(entry)" />
-                </header>
-                <div class="model-actions">
-                  <el-button size="small" :disabled="busy" @click="editCode(entry)">{{ entry.code.trim() ? '编辑源码' : '粘贴代码' }}</el-button>
-                  <el-button size="small" :loading="readingFile" :disabled="busy" @click="chooseFile(entry)">选择文件</el-button>
-                  <el-button size="small" :disabled="!entry.code.trim()" @click="copyText(entry.code)">复制代码</el-button>
-                  <el-button size="small" :disabled="!previewCodes[entry.id]" @click="expand(entry)">放大查看</el-button>
-                </div>
-                <div class="model-source"><span :title="entry.fileName">{{ entry.fileName || (entry.code.trim() ? '粘贴的代码' : '等待添加作品') }}</span><el-tag v-if="entry.code !== (previewCodes[entry.id] ?? '')" type="warning" size="small">待更新预览</el-tag></div>
-                <iframe v-if="pageVisible && previewCodes[entry.id]" :srcdoc="previewDoc(entry)" sandbox="allow-scripts" :title="`${entry.name} 的作品预览`" class="model-preview" />
-                <div v-else class="model-empty"><el-empty :image-size="65" description="添加这个模型生成的 SVG 或 HTML"><el-button type="primary" plain size="small" :disabled="busy" @click="editCode(entry)">粘贴代码</el-button></el-empty></div>
-              </article>
-            </div>
-          </div>
         </template>
         <el-empty v-else-if="!loading" description="新建一个主题，把不同模型的作品放在一起比较"><el-button type="primary" :disabled="busy" @click="newTopic()">新建主题</el-button></el-empty>
       </main>
+      <div v-if="form && visibleEntries.length" class="comparison-grid">
+        <article v-for="entry in visibleEntries" :key="entry.id" class="model-card" :aria-label="`${entry.name} 的作品`">
+          <header class="model-card-head">
+            <el-input v-model="entry.name" :aria-label="`${entry.id} 的模型名称`" placeholder="模型名称，例如：DeepSeek V3" :disabled="busy" maxlength="120" />
+            <el-tag v-if="entry.code.trim()" size="small" effect="plain">{{ entry.format.toUpperCase() }}</el-tag>
+            <el-button text :icon="Delete" :disabled="busy || form.entries.length <= 2" aria-label="移除模型" @click="removeEntry(entry)" />
+          </header>
+          <div class="model-actions">
+            <el-button size="small" :disabled="busy" @click="editCode(entry)">{{ entry.code.trim() ? '编辑源码' : '粘贴代码' }}</el-button>
+            <el-button size="small" :loading="readingFile" :disabled="busy" @click="chooseFile(entry)">选择文件</el-button>
+            <el-button size="small" :disabled="!entry.code.trim()" @click="copyText(entry.code)">复制代码</el-button>
+            <el-button size="small" :disabled="!previewCodes[entry.id]" @click="expand(entry)">放大查看</el-button>
+          </div>
+          <div class="model-source"><span :title="entry.fileName">{{ entry.fileName || (entry.code.trim() ? '粘贴的代码' : '等待添加作品') }}</span><el-tag v-if="entry.code !== (previewCodes[entry.id] ?? '')" type="warning" size="small">待更新预览</el-tag></div>
+          <iframe v-if="pageVisible && previewCodes[entry.id]" :srcdoc="previewDoc(entry, true)" sandbox="allow-scripts" :title="`${entry.name} 的作品预览`" class="model-preview" />
+          <div v-else class="model-empty"><el-empty :image-size="65" description="添加这个模型生成的 SVG 或 HTML"><el-button type="primary" plain size="small" :disabled="busy" @click="editCode(entry)">粘贴代码</el-button></el-empty></div>
+        </article>
+      </div>
     </div>
     <p v-if="!form && topics.length" class="topic-list-hint">选择一个主题后查看作品，也可以新建主题。</p>
     <input ref="fileInput" type="file" accept=".svg,.html,.htm" hidden @change="importFile" />
@@ -374,32 +371,36 @@ onBeforeUnmount(() => document.removeEventListener('visibilitychange', onVisibil
 .comparison-head h3 { margin: 0 0 6px; font-size: 18px; color: var(--el-text-color-primary); }
 .comparison-head p, .code-hint { margin: 0; font-size: 13px; line-height: 1.6; color: var(--el-text-color-secondary); }
 .head-actions { flex-wrap: wrap; }
-.comparison-workspace { position: relative; display: flex; align-items: flex-start; gap: 18px; min-height: 520px; }
-.topic-sidebar { flex: 0 0 210px; box-sizing: border-box; padding: 12px; background: var(--el-bg-color); border: 1px solid var(--el-border-color); border-radius: var(--wb-radius-card); }
+.comparison-workspace { position: relative; display: grid; grid-template-columns: 210px minmax(0, 1fr); align-items: start; align-content: start; gap: 14px 18px; min-height: 520px; }
+.topic-sidebar { box-sizing: border-box; padding: 12px; background: var(--el-bg-color); border: 1px solid var(--el-border-color); border-radius: var(--wb-radius-card); }
 .sidebar-label { display: flex; justify-content: space-between; margin-bottom: 12px; font-size: 13px; font-weight: 600; color: var(--el-text-color-primary); }
 .sidebar-label span { color: var(--el-text-color-secondary); font-weight: 400; }
-.topic-list { max-height: 65vh; overflow: auto; margin-top: 10px; }
+.topic-list { max-height: min(25vh, 160px); overflow: auto; margin-top: 10px; scrollbar-width: thin; }
 .topic-item { display: block; width: 100%; padding: 12px 10px; border: 0; border-radius: var(--wb-radius-base); background: transparent; color: var(--el-text-color-primary); font: inherit; text-align: left; cursor: pointer; }
 .topic-item:hover { background: var(--el-fill-color-light); }
 .topic-item.active { background: var(--el-color-primary-light-9); color: var(--wb-accent-text); }
 .topic-item:disabled { cursor: default; }
 .topic-name { display: block; font-size: 13px; overflow-wrap: anywhere; }
 .topic-meta { display: block; font-size: 11px; color: var(--el-text-color-secondary); margin-top: 5px; }
-.comparison-main { flex: 1; min-width: 0; }
-.topic-toolbar { flex-wrap: wrap; margin-bottom: 14px; }
-.topic-title { flex: 1; min-width: 220px; }
+.comparison-main { min-width: 0; }
+.topic-toolbar { flex-wrap: wrap; margin-bottom: 10px; }
+.topic-title { flex: 1; min-width: min(220px, 100%); }
 .save-status { color: var(--el-text-color-secondary); font-size: 12px; }
-.prompt-details { padding: 12px; margin-bottom: 14px; background: var(--el-bg-color); border: 1px solid var(--el-border-color); border-radius: var(--wb-radius-card); }
+.prompt-details { padding: 12px; margin-bottom: 10px; background: var(--el-bg-color); border: 1px solid var(--el-border-color); border-radius: var(--wb-radius-card); }
 .prompt-details summary { cursor: pointer; font-size: 13px; color: var(--el-text-color-primary); }
 .prompt-details summary span { color: var(--el-text-color-secondary); font-size: 12px; margin-left: 8px; }
 .prompt-details[open] summary { margin-bottom: 10px; }
 .prompt-details .el-button { margin-top: 8px; }
-.model-toolbar { flex-wrap: wrap; margin-bottom: 14px; font-size: 13px; color: var(--el-text-color-regular); }
+.model-toolbar { flex-wrap: wrap; font-size: 13px; color: var(--el-text-color-regular); }
 .model-toolbar .el-checkbox-group { display: flex; flex: 1; flex-wrap: wrap; gap: 6px 14px; }
 .model-toolbar .el-checkbox { margin-right: 0; }
 .selection-hint { font-size: 13px; color: var(--el-text-color-secondary); }
-.gallery-scroll { overflow-x: auto; padding-bottom: 8px; }
-.comparison-grid { display: grid; gap: 14px; }
+.comparison-grid {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, max(320px, (100% - 28px) / 3)), 1fr));
+}
 .model-card { min-width: 0; overflow: hidden; background: var(--el-bg-color); border: 1px solid var(--el-border-color); border-radius: var(--wb-radius-card); }
 .model-card-head { padding: 12px; border-bottom: 1px solid var(--el-border-color-lighter); }
 .model-card-head .el-input { flex: 1; min-width: 0; }
@@ -413,10 +414,12 @@ onBeforeUnmount(() => document.removeEventListener('visibilitychange', onVisibil
 .code-input :deep(textarea) { font-family: var(--wb-font-mono, monospace); font-size: 12px; line-height: 1.65; }
 .expanded-preview { width: 100%; height: 78vh; border: 0; background: #fff; }
 .compact .topic-sidebar { position: absolute; inset: 0 auto auto 0; z-index: 4; width: min(300px, 90%); box-shadow: var(--el-box-shadow-light); }
+.compact .comparison-workspace { grid-template-columns: minmax(0, 1fr); }
+.compact .topic-list { max-height: 65vh; }
 .topic-backdrop { position: absolute; inset: 0; z-index: 3; border: 0; background: rgb(0 0 0 / 18%); cursor: pointer; }
 .topic-list-mode { display: block; min-height: 0; }
 .topic-list-mode .topic-sidebar { position: static; width: 100%; box-shadow: none; }
-.topic-list-mode .topic-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; max-height: none; }
+.topic-list-mode .topic-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr)); gap: 10px; max-height: none; }
 .topic-list-mode .topic-item { padding: 16px; border: 1px solid var(--el-border-color-lighter); background: var(--el-fill-color-lighter); }
 .topic-list-mode .topic-item:hover { border-color: var(--el-color-primary-light-5); background: var(--el-color-primary-light-9); }
 .topic-list-hint { margin: 14px 0 0; color: var(--el-text-color-secondary); font-size: 13px; }
