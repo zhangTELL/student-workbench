@@ -183,7 +183,7 @@ html[data-wb-theme='paper'] body {
 
    ★ 判定规则：**页面级面板**与**列表里的卡片**才算"一张纸"。
    各页面自绘的面板不是 el-card，必须逐个点名——笔记（`.sidebar` / `.editor-pane`）、
-   项目管理（`.side` / `.proj-card`）、AI 实验区与日常工具（`.tab-block`）**都不用 el-card**，
+   项目管理（`.side` / `.proj-card`）和共用页面底板（`.workspace-page`）**都不用 el-card**，
    只挂 `.el-card` 的话这几页一个胶带都没有（用户 2026-09-19 反馈）。
    **面板里的方框不算纸**（`.stat-card` / `.cd-card` / `.chart-box` / `.bal-card` / `.an-card` /
    `.pl-list`）：它们是"画在纸上的框"，也算纸的话一页会到处是胶带；其中 `.stat-card` 另有
@@ -194,7 +194,7 @@ html[data-wb-theme='paper'] body {
    paper 主题里圆角只有 3px、卡片头也没有底色，所以放开裁剪不会露出方角。
    ⚠️ 加 `position: relative` 前确认过：这几类里唯一的绝对定位子元素（`.pc-check`、`.chart-empty`）
       要么父元素本来就 relative，要么用行内 `style="position: relative"` 自己兜住了。 */
-html[data-wb-theme='paper'] :is(.el-card, .sidebar, .editor-pane, .side, .proj-card, .tab-block) {
+html[data-wb-theme='paper'] :is(.el-card, .sidebar, .editor-pane, .side, .proj-card, .workspace-page) {
   position: relative; /* 胶带伪元素的定位基准 */
   overflow: visible;
   box-shadow: var(--paper-lift);
@@ -202,7 +202,7 @@ html[data-wb-theme='paper'] :is(.el-card, .sidebar, .editor-pane, .side, .proj-c
 /* 胶带：左上角斜贴一条，`mix-blend-mode: multiply` 让它在纸上呈现"半透明压深"的效果
    （真胶带是透光的，直接给不透明色会像贴纸）。两端用 clip-path 切出不规则斜口，避免方块感。 */
 html[data-wb-theme='paper']
-  :is(.el-card, .sidebar, .editor-pane, .side, .proj-card, .tab-block)::after {
+  :is(.el-card, .sidebar, .editor-pane, .side, .proj-card, .workspace-page)::after {
   content: '';
   position: absolute;
   top: -8px;
@@ -223,7 +223,7 @@ html[data-wb-theme='paper']
    用 nth-of-type 而不是 nth-child：卡片常被包在 .col / .page 等不同父级里，
    nth-of-type 在每个父级内各自计数，正好能形成交替。 */
 html[data-wb-theme='paper']
-  :is(.el-card, .sidebar, .editor-pane, .side, .proj-card, .tab-block):nth-of-type(even)::after {
+  :is(.el-card, .sidebar, .editor-pane, .side, .proj-card, .workspace-page):nth-of-type(even)::after {
   left: auto;
   right: 26px;
   width: 50px;

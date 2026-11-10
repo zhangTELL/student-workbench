@@ -247,7 +247,9 @@ onUnmounted(() => {
       </el-header>
       <el-main class="main app-main">
         <AssistantReviewBar />
-        <router-view :key="route.path + ':' + String(route.query.aiRevision ?? '')" />
+        <div class="workspace-page">
+          <router-view :key="route.path + ':' + String(route.query.aiRevision ?? '')" />
+        </div>
       </el-main>
     </el-container>
   </el-container>
@@ -321,14 +323,33 @@ onUnmounted(() => {
   margin-right: 8px;
 }
 .main {
-  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  padding: clamp(8px, 1vw, 12px);
   overflow: auto;
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--wb-text-regular) 30%, var(--wb-text-muted)) transparent;
 }
-.main:has(> .project-files-page) {
+.workspace-page {
   display: flex;
   flex-direction: column;
+  flex: 1 0 auto;
+  min-width: 0;
+  padding: clamp(8px, 1.2vw, 16px);
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: var(--wb-radius-card);
+  background: color-mix(in srgb, var(--el-bg-color) 88%, transparent);
+}
+/* 编辑工作区使用剩余高度，长文档在自己的预览或编辑区滚动。 */
+.workspace-page:has(> .notes-page) {
+  flex-basis: 0;
+  min-height: 420px;
+}
+.workspace-page:has(> .project-files-page) {
+  flex-basis: 0;
+  min-height: 380px;
+}
+.main:has(> .workspace-page > .project-files-page) {
   scrollbar-width: none;
 }
 </style>

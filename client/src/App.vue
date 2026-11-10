@@ -30,8 +30,7 @@ body {
    · --wb-bg-image：主题的"壁纸"（macOS 用柔和渐变；其它主题 none）
    · --wb-texture  ：主题的"纸纹"（paper 用 repeating-linear-gradient 画横格；其它主题 none）
    两者都铺在 body 上、都 fixed 不随滚动，第二层（壁纸）用 cover 撑满。
-   ⚠️ 主内容区（.el-main / MainLayout 的 .main）与 EP 各容器**都没有背景色**，
-      所以 body 上的纹理能透到内容区里——这是纸纹能看见的前提，别给它们加底。 */
+   主内容滚动区保持透明，内侧页面底板使用半透明主题色，让壁纸和纹理可以透出。 */
 body {
   background-color: var(--wb-bg);
   background-image: var(--wb-texture), var(--wb-bg-image);

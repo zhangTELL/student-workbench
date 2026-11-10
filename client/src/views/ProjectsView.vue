@@ -1060,17 +1060,13 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.page {
-  max-width: 1400px;
-}
 .page:not(.project-files-page) {
   container: projects / inline-size;
 }
 .project-files-page {
   display: flex;
   flex: 1;
-  min-height: 380px;
-  max-width: none;
+  min-height: 0;
 }
 .layout {
   display: flex;

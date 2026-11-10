@@ -418,7 +418,7 @@ onBeforeUnmount(() => document.removeEventListener('visibilitychange', onVisibil
 .compact .topic-list { max-height: 65vh; }
 .topic-backdrop { position: absolute; inset: 0; z-index: 3; border: 0; background: rgb(0 0 0 / 18%); cursor: pointer; }
 .topic-list-mode { display: block; min-height: 0; }
-.topic-list-mode .topic-sidebar { position: static; width: 100%; box-shadow: none; }
+.topic-list-mode .topic-sidebar { position: static; width: 100%; padding: 0; border: 0; background: transparent; box-shadow: none; }
 .topic-list-mode .topic-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr)); gap: 10px; max-height: none; }
 .topic-list-mode .topic-item { padding: 16px; border: 1px solid var(--el-border-color-lighter); background: var(--el-fill-color-lighter); }
 .topic-list-mode .topic-item:hover { border-color: var(--el-color-primary-light-5); background: var(--el-color-primary-light-9); }

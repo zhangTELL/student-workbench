@@ -724,8 +724,6 @@ onMounted(loadAll)
   display: flex;
   flex-direction: column;
   gap: 16px;
-  /* 内容区在 1600px 视口下有 1360px，别用小 max-width 把右侧空出来 */
-  max-width: 1400px;
 }
 
 /* ===== 问候条 ===== */

@@ -916,7 +916,7 @@ function onThemeChange() {
 <template>
   <div class="ai-page">
     <!-- ==================== 账户余额 ==================== -->
-    <div v-show="activeTab === 'balance'" class="tab-block">
+    <div v-show="activeTab === 'balance'">
       <div class="tab-head">
         <div class="head-text">
           <h3>API 余额与套餐</h3>
@@ -1146,7 +1146,7 @@ function onThemeChange() {
     </div>
 
     <!-- ==================== Prompt 库 ==================== -->
-    <div ref="promptPageEl" v-show="activeTab === 'prompts'" class="tab-block prompt-block" :class="{ compact: promptCompact }">
+    <div ref="promptPageEl" v-show="activeTab === 'prompts'" :class="{ compact: promptCompact }">
       <div v-if="promptCompact" class="prompt-list-toggle">
         <el-button :aria-expanded="promptListVisible" @click="promptListVisible = !promptListVisible">{{ promptListVisible ? '收起提示词列表' : '展开提示词列表' }}</el-button>
         <el-button :icon="Plus" @click="newPrompt">新建提示词</el-button>
@@ -1222,7 +1222,7 @@ function onThemeChange() {
     <ModelComparison v-if="activeTab === 'compare'" ref="comparisonRef" />
 
     <!-- ==================== 沙箱渲染 ==================== -->
-    <div v-show="activeTab === 'sandbox'" class="tab-block">
+    <div v-show="activeTab === 'sandbox'">
       <div class="tab-head">
         <div class="head-text">
           <h3>沙箱渲染</h3>
@@ -1337,15 +1337,6 @@ function onThemeChange() {
 </template>
 
 <style scoped>
-.ai-page {
-  display: block;
-}
-.tab-block {
-  background: var(--el-bg-color);
-  border: 1px solid var(--el-border-color);
-  border-radius: var(--wb-radius-card);
-  padding: 16px;
-}
 .tab-head {
   display: flex;
   /* 必须允许换行：否则窄宽度下右侧按钮会把标题挤成一字一行 */
@@ -1361,7 +1352,7 @@ function onThemeChange() {
  */
 .head-text {
   flex: 1 1 auto;
-  min-width: 240px;
+  min-width: min(240px, 100%);
 }
 .tab-head h3 {
   margin: 0 0 4px;
@@ -1404,7 +1395,7 @@ function onThemeChange() {
 
 .card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
   gap: 12px;
 }
 .bal-card {

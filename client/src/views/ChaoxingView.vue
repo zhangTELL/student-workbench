@@ -384,9 +384,6 @@ async function removeHomework(h: Homework) {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  width: 100%;
-  max-width: 1360px;
-  margin-inline: auto;
   container-type: inline-size;
 }
 .workspace {

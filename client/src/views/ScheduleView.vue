@@ -1703,6 +1703,7 @@ async function removeSession() {
 .semester-bar {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
   color: var(--el-text-color-primary);
   font-weight: 500;

@@ -700,7 +700,7 @@ function onWindowResize() {
 <template>
   <div class="tools-page">
     <section class="tools-content">
-      <div v-show="activeTab === 'runs'" class="tab-block">
+      <div v-show="activeTab === 'runs'">
         <div class="stat-cards">
           <div class="stat-card">
             <div class="stat-num">{{ runStats?.streak ?? 0 }}</div>
@@ -798,7 +798,7 @@ function onWindowResize() {
         </template>
       </el-dialog>
 
-      <div v-show="activeTab === 'countdown'" class="tab-block">
+      <div v-show="activeTab === 'countdown'">
         <div class="tab-toolbar">
           <el-button type="primary" :icon="Plus" @click="openCdDialog()">添加倒计日</el-button>
         </div>
@@ -822,7 +822,7 @@ function onWindowResize() {
         </div>
       </div>
 
-      <div v-show="activeTab === 'scores'" class="tab-block">
+      <div v-show="activeTab === 'scores'">
         <div class="gpa-cards">
           <div class="stat-card">
             <div class="stat-num">{{ scoreData?.overallGpa ?? 0 }}</div>
@@ -892,7 +892,7 @@ function onWindowResize() {
         </el-table>
       </div>
 
-      <div v-show="activeTab === 'pomodoro'" class="tab-block pomo-panel">
+      <div v-show="activeTab === 'pomodoro'" class="pomo-panel">
         <!-- 专注态：只留钟表，居中于内容区（开始/结束时与常规布局做一镜到底 morph） -->
         <el-alert v-for="entry in failedPomoRecords" :key="entry.payload.startedAt" type="error" :closable="false" style="margin-bottom: 12px">
           <p>{{ entry.payload.taskLabel || '未命名专注' }} · {{ entry.payload.durationMin }} 分钟未保存：{{ entry.error }}</p>
@@ -1026,12 +1026,6 @@ function onWindowResize() {
 }
 .tools-content {
   min-width: 0;
-}
-.tab-block {
-  background: var(--el-bg-color);
-  border: 1px solid var(--el-border-color);
-  border-radius: var(--wb-radius-card);
-  padding: 16px;
 }
 .tab-toolbar {
   display: flex;
