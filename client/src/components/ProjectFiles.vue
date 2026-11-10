@@ -24,7 +24,7 @@
       <span v-if="dirty" class="pf-topbar-tip warn">有未保存的修改</span>
     </div>
 
-    <div class="pf-body">
+    <div ref="workspaceEl" class="pf-body" :class="{ 'is-compact': compactWorkspace }" :style="{ '--pf-side-width': `${treePaneWidth}px` }">
       <!-- 左：文件树 -->
       <aside class="pf-side">
         <div class="pf-side-head">
@@ -74,6 +74,10 @@
         </el-tree>
         <div v-if="hiddenHint" class="pf-hidden-hint">{{ hiddenHint }}</div>
       </aside>
+
+      <PanelDivider v-if="!compactWorkspace" class="pf-divider" side="left" label="调整文件树宽度"
+        :model-value="treePaneWidth" :min="treeMinWidth" :max="treeMaxWidth" :default-width="treeDefaultWidth"
+        @update:model-value="treeWidth = $event" @change="savedTreeWidth = $event" />
 
       <!-- 右：编辑器 / 预览 -->
       <section class="pf-main">
@@ -144,12 +148,12 @@
 
           <!-- 预览：HTML / SVG -->
           <div v-else-if="mode === 'preview' && current.preview !== 'markdown'" class="pf-stage">
-            <iframe class="pf-frame" sandbox="allow-scripts" :srcdoc="previewDoc" />
+            <iframe class="pf-frame" sandbox="allow-scripts" :srcdoc="previewDoc" :title="`${current.name} 预览`" />
           </div>
 
           <!-- 预览：Markdown -->
           <div v-else-if="mode === 'preview'" class="pf-stage">
-            <div ref="mdHost" class="pf-markdown" />
+            <div ref="mdHost" class="pf-markdown" tabindex="0" aria-label="Markdown 预览" />
           </div>
         </template>
 
@@ -214,8 +218,10 @@ import { Back, Check, DataAnalysis, Document, FolderOpened, Plus, Refresh, View 
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import CodeEditor from './CodeEditor.vue'
 import OpenInAppButton from './OpenInAppButton.vue'
+import PanelDivider from './PanelDivider.vue'
 import { del, get, patch, post, put } from '../api/http'
 import { wrapPreviewDoc } from '../utils/previewDoc'
+import { useRememberedSelection } from '../composables/useRememberedSelection'
 import { useUnsavedChanges } from '../composables/useUnsavedChanges'
 
 interface ProjectLite {
@@ -230,6 +236,19 @@ interface ProjectLite {
 const props = defineProps<{ project: ProjectLite }>()
 
 const emit = defineEmits<{ back: [] }>()
+
+const workspaceEl = ref<HTMLElement>()
+const workspaceWidth = ref(0)
+const treeDefaultWidth = 260
+const treeMinWidth = 160
+const treeWidthLimit = 440
+const savedTreeWidth = useRememberedSelection<number>('wb.projects.treeWidth', treeDefaultWidth,
+  (value): value is number => typeof value === 'number' && value >= treeMinWidth && value <= treeWidthLimit)
+const treeWidth = ref(savedTreeWidth.value)
+const compactWorkspace = computed(() => workspaceWidth.value < 620)
+const treeMaxWidth = computed(() => Math.max(treeMinWidth, Math.min(treeWidthLimit, Math.floor(workspaceWidth.value - 340))))
+const treePaneWidth = computed(() => Math.min(treeWidth.value, treeMaxWidth.value))
+let workspaceObserver: ResizeObserver | undefined
 
 /**
  * 深浅色自己感知（不通过 props 传）：主题切换时 applyAppearance 会改 html.dark 并广播
@@ -284,7 +303,7 @@ const treeProps = {
   isLeaf: (data: TreeNodeData) => !data.isDir,
 }
 
-const previewDoc = computed(() => (current.value?.preview && current.value.preview !== 'markdown' ? wrapPreviewDoc(draft.value, { maxHeight: '100%' }) : ''))
+const previewDoc = computed(() => (current.value?.preview && current.value.preview !== 'markdown' ? wrapPreviewDoc(draft.value, { maxHeight: '100%', hideScrollbars: true }) : ''))
 
 function fmtSize(n: number): string {
   if (n < 1024) return `${n} B`
@@ -564,10 +583,17 @@ async function requestBack() {
 }
 
 onMounted(() => {
+  workspaceObserver = new ResizeObserver(([entry]) => {
+    if (entry) workspaceWidth.value = entry.contentRect.width
+  })
+  if (workspaceEl.value) workspaceObserver.observe(workspaceEl.value)
   window.addEventListener('wb-theme-change', syncTheme)
   void init()
 })
-onBeforeUnmount(() => window.removeEventListener('wb-theme-change', syncTheme))
+onBeforeUnmount(() => {
+  workspaceObserver?.disconnect()
+  window.removeEventListener('wb-theme-change', syncTheme)
+})
 
 // 切到预览时渲染 Markdown
 watch([mode, () => current.value?.rel], async () => {
@@ -580,7 +606,8 @@ watch([mode, () => current.value?.rel], async () => {
 
 <style scoped>
 .pf-page {
-  height: calc(100vh - 40px); /* el-main 上下各 20px padding，占满剩余可视区 */
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -588,14 +615,16 @@ watch([mode, () => current.value?.rel], async () => {
 .pf-topbar {
   display: flex;
   align-items: center;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 6px 12px;
   min-width: 0;
 }
 .pf-title {
   font-size: 16px;
   font-weight: 600;
   color: var(--el-text-color-primary);
-  flex: none;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .pf-path {
   font-size: 12px;
@@ -614,25 +643,44 @@ watch([mode, () => current.value?.rel], async () => {
   color: var(--el-color-warning);
 }
 .pf-body {
+  position: relative;
   flex: 1;
   min-height: 0;
   display: flex;
-  gap: 12px;
-}
-.pf-side {
-  width: 260px;
-  flex: 0 0 260px;
-  display: flex;
-  flex-direction: column;
   border: 1px solid var(--el-border-color);
   border-radius: var(--wb-radius-card);
   overflow: hidden;
   background: var(--el-bg-color);
 }
+.pf-side {
+  flex: 0 0 var(--pf-side-width);
+  min-width: 0;
+  min-height: 0;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  border-inline-end: 1px solid var(--el-border-color-lighter);
+  overflow: hidden;
+  background: var(--el-fill-color-extra-light);
+}
+.pf-divider {
+  position: absolute;
+  inset: 0 auto 0 calc(var(--pf-side-width) - 5px);
+  z-index: 2;
+}
+.pf-body.is-compact {
+  flex-direction: column;
+}
+.is-compact .pf-side {
+  flex: 0 0 34%;
+  border-inline-end: 0;
+  border-bottom: 1px solid var(--el-border-color);
+}
 .pf-side-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-shrink: 0;
   padding: 4px 6px 4px 10px;
   border-bottom: 1px solid var(--el-border-color-lighter);
   background: var(--el-fill-color-light);
@@ -644,7 +692,9 @@ watch([mode, () => current.value?.rel], async () => {
 }
 .pf-tree {
   flex: 1;
+  min-height: 0;
   overflow: auto;
+  scrollbar-width: none;
   padding: 4px;
   background: transparent;
 }
@@ -691,6 +741,7 @@ watch([mode, () => current.value?.rel], async () => {
   flex: none;
 }
 .pf-hidden-hint {
+  flex-shrink: 0;
   padding: 5px 10px;
   font-size: 11px;
   line-height: 15px;
@@ -701,9 +752,9 @@ watch([mode, () => current.value?.rel], async () => {
 .pf-main {
   flex: 1;
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
 }
 .pf-bar {
   display: flex;
@@ -711,6 +762,10 @@ watch([mode, () => current.value?.rel], async () => {
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
+  flex-shrink: 0;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+  background: var(--el-fill-color-light);
 }
 .pf-bar-left {
   display: flex;
@@ -741,8 +796,6 @@ watch([mode, () => current.value?.rel], async () => {
 .pf-stage {
   flex: 1;
   min-height: 0;
-  border: 1px solid var(--el-border-color);
-  border-radius: var(--wb-radius-card);
   overflow: hidden;
   background: var(--el-bg-color);
 }
@@ -756,9 +809,26 @@ watch([mode, () => current.value?.rel], async () => {
   background: #fff;
 }
 .pf-markdown {
+  box-sizing: border-box;
   overflow: auto;
+  scrollbar-width: none;
   padding: 18px 22px;
   background: var(--el-bg-color);
+}
+.pf-markdown:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: -2px;
+}
+.pf-markdown :deep(table),
+.pf-markdown :deep(pre) {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--wb-text-regular) 30%, var(--wb-text-muted)) transparent;
+}
+.pf-markdown :deep(td),
+.pf-markdown :deep(th) {
+  max-width: 48ch;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 /*
  * Vditor 对「预览」里的代码块只给了 `margin`（`.vditor-reset pre { margin: 1em 0 }`），
@@ -786,8 +856,9 @@ watch([mode, () => current.value?.rel], async () => {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
   margin-left: auto;
-  flex: none;
+  min-width: 0;
 }
 .pf-topbar .pf-topbar-tip {
   margin-left: 0;

@@ -675,7 +675,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="page">
+  <div class="page" :class="{ 'project-files-page': browsing }">
     <!-- 浏览模式（VSCode 式：左树右编辑，占满内容区） -->
     <ProjectFiles v-if="browsing" :key="browsing.id" :project="browsing" @back="browsing = null" />
 
@@ -1063,10 +1063,18 @@ onUnmounted(() => {
 .page {
   max-width: 1400px;
 }
+.page:not(.project-files-page) {
+  container: projects / inline-size;
+}
+.project-files-page {
+  display: flex;
+  flex: 1;
+  min-height: 380px;
+  max-width: none;
+}
 .layout {
   display: flex;
   gap: 16px;
-  align-items: flex-start;
 }
 .side {
   width: 220px;
@@ -1435,12 +1443,13 @@ onUnmounted(() => {
   color: var(--el-text-color-placeholder);
   margin: 0 10px;
 }
-@media (max-width: 1000px) {
+@container projects (max-width: 760px) {
   .layout {
     flex-direction: column;
   }
   .side {
     width: 100%;
+    box-sizing: border-box;
     flex: 1 1 auto;
   }
   .proj-card {

@@ -98,7 +98,7 @@ async function mount() {
       tabSize: 2,
       renderWhitespace: 'selection',
       smoothScrolling: true,
-      scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10 },
+      scrollbar: { vertical: 'hidden', horizontal: 'hidden' },
       stickyScroll: { enabled: false },
       padding: { top: 10, bottom: 10 },
     })
@@ -165,7 +165,7 @@ onBeforeUnmount(() => {
 .code-editor {
   width: 100%;
   height: 100%;
-  min-height: 200px;
+  min-height: 0;
   overflow: hidden;
   border-radius: var(--wb-radius-base);
 }

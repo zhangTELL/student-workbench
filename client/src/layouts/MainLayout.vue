@@ -326,4 +326,9 @@ onUnmounted(() => {
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--wb-text-regular) 30%, var(--wb-text-muted)) transparent;
 }
+.main:has(> .project-files-page) {
+  display: flex;
+  flex-direction: column;
+  scrollbar-width: none;
+}
 </style>

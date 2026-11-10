@@ -11,7 +11,7 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ 'update:modelValue': [width: number]; change: [width: number] }>()
 const resizing = ref(false)
-let drag: { pointerId: number; x: number; width: number; userSelect: string; cursor: string } | undefined
+let drag: { pointerId: number; x: number; width: number; scale: number; userSelect: string; cursor: string } | undefined
 let nextWidth = 0
 
 function resize(width: number) {
@@ -22,17 +22,19 @@ function resize(width: number) {
 function begin(event: PointerEvent) {
   if (event.button !== 0 || drag) return
   event.preventDefault()
-  drag = { pointerId: event.pointerId, x: event.clientX, width: props.modelValue, userSelect: document.body.style.userSelect, cursor: document.body.style.cursor }
+  const handle = event.currentTarget as HTMLElement
+  const scale = handle.getBoundingClientRect().width / handle.offsetWidth || 1
+  drag = { pointerId: event.pointerId, x: event.clientX, width: props.modelValue, scale, userSelect: document.body.style.userSelect, cursor: document.body.style.cursor }
   nextWidth = props.modelValue
   resizing.value = true
   document.body.style.userSelect = 'none'
   document.body.style.cursor = 'col-resize'
-  ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
+  handle.setPointerCapture(event.pointerId)
 }
 
 function move(event: PointerEvent) {
   if (event.pointerId !== drag?.pointerId) return
-  const offset = event.clientX - drag.x
+  const offset = (event.clientX - drag.x) / drag.scale
   resize(drag.width + (props.side === 'left' ? offset : -offset))
 }
 
