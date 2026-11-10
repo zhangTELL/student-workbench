@@ -152,8 +152,17 @@
           </div>
 
           <!-- 预览：Markdown -->
-          <div v-else-if="mode === 'preview'" class="pf-stage">
-            <div ref="mdHost" class="pf-markdown" tabindex="0" aria-label="Markdown 预览" />
+          <div v-else-if="mode === 'preview'" class="pf-stage pf-markdown-stage"
+            :style="markdownResizable ? { '--pf-markdown-width': `${markdownPaneWidth}px` } : undefined">
+            <div class="pf-markdown-scroll" tabindex="0" aria-label="Markdown 预览">
+              <div ref="mdHost" class="pf-markdown" />
+            </div>
+            <template v-if="markdownResizable">
+              <PanelDivider v-for="edge in markdownEdges" :key="edge.position" class="pf-markdown-divider"
+                :class="`pf-markdown-divider-${edge.position}`" :side="edge.side" :label="edge.label" centered
+                :model-value="markdownPaneWidth" :min="markdownMinWidth" :max="markdownMaxWidth" :default-width="markdownDefaultWidth"
+                @update:model-value="markdownWidth = $event" />
+            </template>
           </div>
         </template>
 
@@ -249,6 +258,17 @@ const compactWorkspace = computed(() => workspaceWidth.value < 620)
 const treeMaxWidth = computed(() => Math.max(treeMinWidth, Math.min(treeWidthLimit, Math.floor(workspaceWidth.value - 340))))
 const treePaneWidth = computed(() => Math.min(treeWidth.value, treeMaxWidth.value))
 let workspaceObserver: ResizeObserver | undefined
+
+const markdownMinWidth = 360
+const markdownDefaultWidth = 900
+const markdownWidth = ref(markdownDefaultWidth)
+const markdownMaxWidth = computed(() => Math.floor(workspaceWidth.value - (compactWorkspace.value ? 0 : treePaneWidth.value)) - 24)
+const markdownResizable = computed(() => markdownMaxWidth.value >= markdownMinWidth + 48)
+const markdownPaneWidth = computed(() => Math.min(markdownWidth.value, markdownMaxWidth.value))
+const markdownEdges = [
+  { position: 'left', side: 'right', label: '从左侧调整 Markdown 预览宽度' },
+  { position: 'right', side: 'left', label: '从右侧调整 Markdown 预览宽度' },
+] as const
 
 /**
  * 深浅色自己感知（不通过 props 传）：主题切换时 applyAppearance 会改 html.dark 并广播
@@ -724,8 +744,8 @@ watch([mode, () => current.value?.rel], async () => {
   white-space: nowrap;
 }
 .pf-node-size {
-  margin-left: auto;
-  padding-left: 6px;
+  margin-inline: auto 8px;
+  padding-inline-start: 6px;
   font-size: 11px;
   color: var(--el-text-color-placeholder);
   flex: none;
@@ -799,7 +819,8 @@ watch([mode, () => current.value?.rel], async () => {
   overflow: hidden;
   background: var(--el-bg-color);
 }
-.pf-stage > :deep(*) {
+.pf-frame,
+.pf-markdown-scroll {
   width: 100%;
   height: 100%;
 }
@@ -808,16 +829,34 @@ watch([mode, () => current.value?.rel], async () => {
   display: block;
   background: #fff;
 }
-.pf-markdown {
-  box-sizing: border-box;
+.pf-markdown-stage {
+  position: relative;
+}
+.pf-markdown-scroll {
   overflow: auto;
   scrollbar-width: none;
-  padding: 18px 22px;
-  background: var(--el-bg-color);
 }
-.pf-markdown:focus-visible {
+.pf-markdown-scroll:focus-visible {
   outline: 2px solid var(--el-color-primary);
   outline-offset: -2px;
+}
+.pf-markdown {
+  box-sizing: border-box;
+  width: var(--pf-markdown-width, 100%);
+  margin-inline: auto;
+  padding: 18px 22px;
+}
+.pf-markdown-divider {
+  position: absolute;
+  inset-block: 0;
+  z-index: 1;
+  --pf-markdown-divider-offset: calc((100% - var(--pf-markdown-width)) / 2 - 5px);
+}
+.pf-markdown-divider-left {
+  left: var(--pf-markdown-divider-offset);
+}
+.pf-markdown-divider-right {
+  right: var(--pf-markdown-divider-offset);
 }
 .pf-markdown :deep(table),
 .pf-markdown :deep(pre) {

@@ -8,6 +8,7 @@ const props = defineProps<{
   defaultWidth: number
   side: 'left' | 'right'
   label: string
+  centered?: boolean
 }>()
 const emit = defineEmits<{ 'update:modelValue': [width: number]; change: [width: number] }>()
 const resizing = ref(false)
@@ -35,7 +36,8 @@ function begin(event: PointerEvent) {
 function move(event: PointerEvent) {
   if (event.pointerId !== drag?.pointerId) return
   const offset = (event.clientX - drag.x) / drag.scale
-  resize(drag.width + (props.side === 'left' ? offset : -offset))
+  const widthDelta = offset * (props.centered ? 2 : 1)
+  resize(drag.width + (props.side === 'left' ? widthDelta : -widthDelta))
 }
 
 function end(event?: PointerEvent) {
@@ -60,7 +62,7 @@ onBeforeUnmount(() => end())
 </script>
 
 <template>
-  <div class="panel-divider" :class="{ resizing }" role="separator" :aria-label="label" aria-orientation="vertical"
+  <div class="panel-divider" :class="{ resizing, centered }" role="separator" :aria-label="label" aria-orientation="vertical"
     :aria-valuenow="modelValue" :aria-valuemin="min" :aria-valuemax="max" tabindex="0"
     @pointerdown="begin" @pointermove="move" @pointerup="end" @pointercancel="end" @lostpointercapture="end" @keydown="onKeydown" />
 </template>
@@ -69,4 +71,14 @@ onBeforeUnmount(() => end())
 .panel-divider { width: 10px; cursor: col-resize; touch-action: none; }
 .panel-divider::after { content: ''; position: absolute; inset: 0 auto 0 4px; width: 2px; background: transparent; }
 .panel-divider:hover::after, .panel-divider.resizing::after, .panel-divider:focus-visible::after { width: 3px; background: var(--el-color-primary); }
+.panel-divider.centered::after {
+  inset: 50% auto auto 50%;
+  width: 1px;
+  height: min(100px, 60%);
+  transform: translate(-50%, -50%);
+}
+.panel-divider.centered:is(:hover, .resizing, :focus-visible)::after {
+  width: 1px;
+  background: var(--el-text-color-secondary);
+}
 </style>
