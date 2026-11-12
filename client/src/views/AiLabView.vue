@@ -11,6 +11,7 @@ import type {
 import * as echarts from 'echarts'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import type { InputInstance } from 'element-plus'
 import { Delete, Plus, Refresh } from '@element-plus/icons-vue'
 import { useRoute, useRouter } from 'vue-router'
 import { del, get, post, put } from '../api/http'
@@ -846,18 +847,43 @@ async function pushPromptToCompare() {
 const sandboxCode = ref('')
 const sandboxSrc = ref('')
 const sandboxWrap = ref(false)
+const sandboxInput = ref<InputInstance>()
+const sandboxRenderId = ref(0)
+const sandboxPreviewReady = ref(false)
+
+const sandboxExample = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 160" role="img" aria-label="绘制波形示例">
+  <style>
+    .wave { stroke-dasharray: 1; animation: draw 1.2s ease-out both; }
+    @keyframes draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+    @media (prefers-reduced-motion: reduce) { .wave { animation: none; } }
+  </style>
+  <rect x="8" y="8" width="304" height="144" rx="18" fill="#edf5ff"/>
+  <path d="M32 80h256" stroke="#b9d0ea" stroke-dasharray="3 5"/>
+  <path class="wave" pathLength="1" d="M32 80C72 80 76 40 112 40S150 120 188 120S222 64 250 64S276 80 288 80"
+    fill="none" stroke="#2778bf" stroke-width="4" stroke-linecap="round"/>
+</svg>`
+
+async function loadSandboxExample() {
+  if (sandboxCode.value.trim()) return
+  sandboxCode.value = sandboxExample
+  await nextTick()
+  sandboxInput.value?.focus()
+}
 
 function renderSandbox() {
   if (!sandboxCode.value.trim()) {
     ElMessage.warning('请先粘贴 SVG / HTML')
     return
   }
+  sandboxPreviewReady.value = false
   sandboxSrc.value = sandboxCode.value
+  sandboxRenderId.value++
 }
 
 function clearSandbox() {
   sandboxCode.value = ''
   sandboxSrc.value = ''
+  sandboxPreviewReady.value = false
 }
 
 /**
@@ -1222,7 +1248,7 @@ function onThemeChange() {
     <ModelComparison v-if="activeTab === 'compare'" ref="comparisonRef" />
 
     <!-- ==================== 沙箱渲染 ==================== -->
-    <div v-show="activeTab === 'sandbox'">
+    <div v-show="activeTab === 'sandbox'" class="sandbox-page">
       <div class="tab-head">
         <div class="head-text">
           <h3>沙箱渲染</h3>
@@ -1235,13 +1261,24 @@ function onThemeChange() {
         </div>
       </div>
       <el-input
+        ref="sandboxInput"
         v-model="sandboxCode"
         type="textarea"
         :rows="10"
+        aria-label="沙箱源码"
         placeholder="把 SVG / HTML 粘到这里，例如：<svg viewBox='0 0 100 100'><circle cx='50' cy='50' r='40' fill='red'/></svg>"
       />
-      <div v-if="sandboxSrc" class="sandbox-frame-wrap">
-        <iframe class="sandbox-frame" sandbox="allow-scripts" :srcdoc="sandboxDoc" />
+      <div class="sandbox-frame-wrap" :class="{ 'sandbox-has-result': sandboxSrc }">
+        <iframe v-if="sandboxSrc" :key="sandboxRenderId" class="sandbox-frame" sandbox="allow-scripts"
+          title="沙箱预览" :srcdoc="sandboxDoc" @load="sandboxPreviewReady = true" />
+        <svg v-if="!sandboxSrc || sandboxPreviewReady" class="sandbox-guide" :class="{ 'sandbox-guide-ready': sandboxSrc && sandboxPreviewReady }"
+          viewBox="0 0 280 132" fill="none" aria-hidden="true" focusable="false">
+          <path d="M5 26V5h21m228 0h21v21M5 106v21h21m228 0h21v-21" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+        <div v-if="!sandboxSrc" class="sandbox-empty">
+          <el-button v-if="!sandboxCode.trim()" class="sandbox-example" plain @click="loadSandboxExample">载入 SVG 示例</el-button>
+          <span v-else>点击「渲染」查看预览</span>
+        </div>
       </div>
     </div>
 
@@ -1764,18 +1801,70 @@ function onThemeChange() {
   gap: 8px;
 }
 
+.ai-page, .sandbox-page {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+}
 .sandbox-frame-wrap {
+  position: relative;
+  display: grid;
+  flex: 1;
+  min-height: clamp(200px, 42vh, 460px);
+  place-items: center;
   margin-top: 12px;
   border: 1px solid var(--el-border-color);
   border-radius: var(--wb-radius-card);
   overflow: hidden;
+  background: var(--el-bg-color);
+}
+.sandbox-frame-wrap:not(.sandbox-has-result) {
+  background-color: var(--el-fill-color-extra-light);
+  background-image: radial-gradient(color-mix(in srgb, var(--el-text-color-secondary) 20%, transparent) 1px, transparent 1px);
+  background-position: center;
+  background-size: 16px 16px;
 }
 .sandbox-frame {
+  position: absolute;
+  inset: 0;
   width: 100%;
-  height: 460px;
+  height: 100%;
   border: 0;
   background: var(--el-bg-color);
   display: block;
+}
+.sandbox-empty {
+  z-index: 1;
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+}
+.sandbox-guide {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: min(280px, calc(100% - 28px));
+  height: auto;
+  color: var(--el-text-color-placeholder);
+  pointer-events: none;
+  transition: transform 220ms ease, color 220ms ease;
+}
+.sandbox-frame-wrap:has(.sandbox-example:is(:hover, :focus-visible)) .sandbox-guide {
+  color: var(--el-color-primary);
+  transform: scale(0.94);
+}
+.sandbox-guide-ready {
+  color: var(--el-color-primary);
+  opacity: 0;
+  animation: sandbox-preview-ready 520ms ease-out;
+}
+@keyframes sandbox-preview-ready {
+  0% { opacity: 0; }
+  28% { opacity: 0.85; }
+  100% { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sandbox-guide { transition: none; }
+  .sandbox-guide-ready { animation: none; }
 }
 .dialog-note {
   margin-bottom: 12px;

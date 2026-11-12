@@ -283,7 +283,7 @@ onBeforeUnmount(() => document.removeEventListener('visibilitychange', onVisibil
       <div><h3>模型作品对比</h3><p>用同一提示词在不同平台生成作品，再把 SVG 或 HTML 汇总到一个主题中。</p></div>
       <div class="head-actions">
         <el-button v-if="compact && form" :aria-expanded="listVisible" @click="listVisible = !listVisible">{{ listVisible ? '收起主题列表' : '查看已保存主题' }}</el-button>
-        <el-button type="primary" :icon="Plus" :disabled="busy" @click="newTopic()">新建主题</el-button>
+        <el-button class="comparison-new-topic" type="primary" :icon="Plus" :disabled="busy" @click="newTopic()">新建主题</el-button>
       </div>
     </div>
     <div class="comparison-workspace" :class="{ 'topic-list-mode': !form }">
@@ -325,7 +325,7 @@ onBeforeUnmount(() => document.removeEventListener('visibilitychange', onVisibil
           </div>
           <p v-if="visibleEntries.length < 2" class="selection-hint">勾选两个或更多模型，即可并排对比作品。</p>
         </template>
-        <el-empty v-else-if="!loading" description="新建一个主题，把不同模型的作品放在一起比较"><el-button type="primary" :disabled="busy" @click="newTopic()">新建主题</el-button></el-empty>
+        <el-empty v-else-if="!loading" description="新建一个主题，把不同模型的作品放在一起比较"><el-button class="comparison-new-topic" type="primary" :disabled="busy" @click="newTopic()">新建主题</el-button></el-empty>
       </main>
       <div v-if="form && visibleEntries.length" class="comparison-grid">
         <article v-for="entry in visibleEntries" :key="entry.id" class="model-card" :aria-label="`${entry.name} 的作品`">
@@ -347,6 +347,23 @@ onBeforeUnmount(() => document.removeEventListener('visibilitychange', onVisibil
       </div>
     </div>
     <p v-if="!form && topics.length" class="topic-list-hint">选择一个主题后查看作品，也可以新建主题。</p>
+    <div v-if="!form && !busy && !loadError && !search.trim()" class="comparison-decoration" aria-hidden="true">
+      <svg class="comparison-illustration" viewBox="0 0 432 192" focusable="false" fill="none">
+        <path class="comparison-guides" d="M12 45h408M12 153h408M25 30v139M407 30v139" stroke-dasharray="2 6" />
+        <g class="comparison-sheet comparison-sheet-left">
+          <rect x="28" y="45" width="116" height="108" rx="5" />
+          <path d="M28 65h116M39 55h7m5 0h5m-14 28h34m-34 10h65m-65 32h87M47 119l17-14 14 9 18-15 23 20" />
+        </g>
+        <g class="comparison-sheet comparison-sheet-right">
+          <rect x="288" y="45" width="116" height="108" rx="5" />
+          <path d="M288 65h116M299 55h7m5 0h5m-13 64h85m-71 0V94h12v25m11 0V84h12v35m11 0v-17h12v17" />
+        </g>
+        <g class="comparison-sheet comparison-sheet-center">
+          <rect x="158" y="45" width="116" height="108" rx="5" />
+          <path d="M158 65h116M169 55h7m5 0h5m-14 71h87M191 109l25-20 25 20-25 20zM216 89v40" />
+        </g>
+      </svg>
+    </div>
     <input ref="fileInput" type="file" accept=".svg,.html,.htm" hidden @change="importFile" />
     <el-drawer v-model="editorVisible" :title="`作品源码 · ${editingEntry?.name || '模型'}`" size="min(680px, 94vw)" :close-on-click-modal="false">
       <template v-if="editingEntry">
@@ -366,6 +383,7 @@ onBeforeUnmount(() => document.removeEventListener('visibilitychange', onVisibil
 </template>
 
 <style scoped>
+.comparison-page { flex: 1; display: flex; flex-direction: column; }
 .comparison-head, .head-actions, .topic-toolbar, .model-toolbar, .model-card-head, .model-actions, .model-source { display: flex; align-items: center; gap: 10px; }
 .comparison-head { justify-content: space-between; flex-wrap: wrap; margin-bottom: 16px; }
 .comparison-head h3 { margin: 0 0 6px; font-size: 18px; color: var(--el-text-color-primary); }
@@ -423,4 +441,36 @@ onBeforeUnmount(() => document.removeEventListener('visibilitychange', onVisibil
 .topic-list-mode .topic-item { padding: 16px; border: 1px solid var(--el-border-color-lighter); background: var(--el-fill-color-lighter); }
 .topic-list-mode .topic-item:hover { border-color: var(--el-color-primary-light-5); background: var(--el-color-primary-light-9); }
 .topic-list-hint { margin: 14px 0 0; color: var(--el-text-color-secondary); font-size: 13px; }
+.comparison-decoration {
+  position: relative;
+  flex: 1 0 0;
+  container: comparison-space / size;
+  overflow: clip;
+  pointer-events: none;
+}
+.comparison-illustration {
+  position: absolute;
+  inset: auto 3% 8% auto;
+  width: min(65%, 432px, 195cqh);
+  color: color-mix(in srgb, var(--el-color-primary) 32%, var(--el-border-color));
+  opacity: 0;
+  transition: opacity 250ms ease;
+}
+.comparison-guides { stroke: currentColor; opacity: 0; transition: opacity 250ms ease; }
+.comparison-sheet { stroke: currentColor; transition: transform 250ms ease; }
+.comparison-sheet rect { fill: var(--el-bg-color); }
+.comparison-sheet-left { transform: translate(84px, -13px) rotate(-8deg); transform-origin: 86px 99px; }
+.comparison-sheet-right { transform: translate(-84px, 13px) rotate(8deg); transform-origin: 346px 99px; }
+.comparison-sheet-center { transform: translateY(3px); }
+.comparison-page:has(.comparison-new-topic:is(:hover, :focus-visible)) .comparison-sheet { transform: none; }
+.comparison-page:has(.comparison-new-topic:is(:hover, :focus-visible)) .comparison-guides { opacity: 0.8; }
+@container comparison-space (min-width: 480px) and (min-height: 128px) {
+  .comparison-illustration { opacity: 0.52; }
+}
+@container comparison-space (min-width: 480px) and (min-height: 240px) {
+  .comparison-illustration { opacity: 0.86; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .comparison-illustration, .comparison-sheet, .comparison-guides { transition: none; }
+}
 </style>
