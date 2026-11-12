@@ -306,6 +306,9 @@ interface Countdown {
 }
 
 const countdowns = ref<Countdown[]>([])
+const cdHoveredId = ref<number | null>(null)
+const cdFocusedId = ref<number | null>(null)
+const cdAddedId = ref<number | null>(null)
 const cdDialogVisible = ref(false)
 const cdForm = ref({ id: 0, title: '', date: '', category: '考试', note: '' })
 
@@ -328,6 +331,23 @@ function daysLeft(date: string): number {
   return Math.round((target - today.getTime()) / 86400000)
 }
 
+const cdTimeline = computed(() => {
+  const upcoming = cdSorted.value.map((event) => ({ event, days: daysLeft(event.date) })).filter(({ days }) => days >= 0)
+  const last = upcoming.at(-1)
+  return {
+    upcoming,
+    markers: [...new Set(upcoming.map(({ days }) => days))],
+    span: Math.max(7, last?.days ?? 0),
+    endLabel: last && last.days >= 7 ? last.event.date : '未来 7 天',
+  }
+})
+const cdTimelineTarget = computed(() => cdTimeline.value.upcoming.find(({ event }) => event.id === (cdHoveredId.value ?? cdFocusedId.value)))
+const cdAddedPoint = computed(() => cdTimeline.value.upcoming.find(({ event }) => event.id === cdAddedId.value))
+
+function cdMarkerX(days: number) {
+  return `${2 + (96 * days) / cdTimeline.value.span}%`
+}
+
 async function loadCountdowns() {
   countdowns.value = await get<Countdown[]>('/api/countdowns')
 }
@@ -347,14 +367,19 @@ async function saveCd() {
     return
   }
   await cdSubmit(async () => {
-  if (f.id) {
-    await put(`/api/countdowns/${f.id}`, f)
-  } else {
-    await post('/api/countdowns', f)
-  }
-  cdDialogVisible.value = false
-  try { await loadCountdowns() } catch (e) { ElMessage.warning(`记录已保存，列表刷新失败：${(e as Error).message}`) }
-  ElMessage.success('已保存')
+    let addedId: number | null = null
+    if (f.id) {
+      await put(`/api/countdowns/${f.id}`, f)
+    } else {
+      const created = await post<{ id: number }>('/api/countdowns', f)
+      addedId = created.id
+    }
+    cdDialogVisible.value = false
+    try {
+      await loadCountdowns()
+      cdAddedId.value = addedId
+    } catch (e) { ElMessage.warning(`记录已保存，列表刷新失败：${(e as Error).message}`) }
+    ElMessage.success('已保存')
   })
 }
 
@@ -802,9 +827,10 @@ function onWindowResize() {
         <div class="tab-toolbar">
           <el-button type="primary" :icon="Plus" @click="openCdDialog()">添加倒计日</el-button>
         </div>
-        <el-empty v-if="!cdSorted.length" description="还没有倒计日。加上期末考试、四六级、交作业这类重要日子吧" />
-        <div v-else class="cd-grid">
-          <div v-for="c in cdSorted" :key="c.id" class="cd-card" data-ai-entity="countdown" :data-ai-id="c.id" :class="{ past: daysLeft(c.date) < 0 }" @click="openCdDialog(c)">
+        <div v-if="cdSorted.length" class="cd-grid">
+          <div v-for="c in cdSorted" :key="c.id" class="cd-card" data-ai-entity="countdown" :data-ai-id="c.id"
+            :class="{ past: daysLeft(c.date) < 0, 'cd-card-active': cdTimelineTarget?.event.id === c.id }" @click="openCdDialog(c)"
+            @mouseenter="cdHoveredId = c.id" @mouseleave="cdHoveredId = null" @focusin="cdFocusedId = c.id" @focusout="cdFocusedId = null">
             <el-tag size="small" :type="c.category === '考试' ? 'danger' : c.category === '作业' ? 'warning' : 'info'">{{ c.category }}</el-tag>
             <div class="cd-days">
               <template v-if="daysLeft(c.date) > 0">
@@ -815,11 +841,32 @@ function onWindowResize() {
                 <span class="cd-num past">已过 {{ -daysLeft(c.date) }}</span><span class="cd-unit">天</span>
               </template>
             </div>
-            <div class="cd-title">{{ c.title }}</div>
+            <button type="button" class="cd-title" @click.stop="openCdDialog(c)">{{ c.title }}</button>
             <div class="cd-date">{{ c.date }}</div>
             <el-icon class="cd-del" @click.stop="removeCd(c)"><Delete /></el-icon>
           </div>
         </div>
+        <section class="cd-timeline" aria-label="倒计日时间轴">
+          <div class="cd-timeline-head">
+            <strong>时间轴</strong>
+            <span v-if="cdTimelineTarget" class="cd-timeline-status" :title="cdTimelineTarget.event.title">
+              <span class="cd-timeline-event">{{ cdTimelineTarget.event.title }}</span>
+              <span>· {{ cdTimelineTarget.days ? `还有 ${cdTimelineTarget.days} 天` : '今天' }}</span>
+            </span>
+            <span v-else>{{ cdTimeline.upcoming.length ? `${cdTimeline.upcoming.length} 项待到期` : '还没有未来事件' }}</span>
+          </div>
+          <svg class="cd-timeline-plot" width="100%" height="44" aria-hidden="true" focusable="false">
+            <line class="cd-timeline-track" x1="2%" x2="98%" y1="22" y2="22" />
+            <line class="cd-timeline-segment" :class="{ 'cd-segment-active': cdTimelineTarget?.days }" x1="2%" x2="98%" y1="22" y2="22"
+              pathLength="1" stroke-dasharray="1" :stroke-dashoffset="1 - (cdTimelineTarget?.days ?? 0) / cdTimeline.span" />
+            <circle cx="2%" cy="22" r="4" class="cd-timeline-today" />
+            <circle v-for="day in cdTimeline.markers" :key="day" :cx="cdMarkerX(day)" cy="22" r="4"
+              class="cd-timeline-marker" :class="{ 'cd-marker-active': day === cdTimelineTarget?.days }" />
+            <circle v-if="cdAddedPoint" :key="cdAddedPoint.event.id" class="cd-timeline-pulse" :cx="cdMarkerX(cdAddedPoint.days)" cy="22" r="8"
+              @animationend="cdAddedId = null" />
+          </svg>
+          <div class="cd-timeline-dates"><span>今天</span><span>{{ cdTimeline.endLabel }}</span></div>
+        </section>
       </div>
 
       <div v-show="activeTab === 'scores'">
@@ -1207,7 +1254,7 @@ function onWindowResize() {
 }
 .cd-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(200px, 100%), 1fr));
   gap: 12px;
 }
 .cd-card {
@@ -1222,6 +1269,7 @@ function onWindowResize() {
 .cd-card.past {
   opacity: 0.55;
 }
+.cd-card-active { border-color: var(--el-color-primary); }
 .cd-days {
   margin: 10px 0 6px;
 }
@@ -1244,9 +1292,16 @@ function onWindowResize() {
   margin-left: 4px;
 }
 .cd-title {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
   font-weight: 600;
   color: var(--el-text-color-primary);
+  overflow-wrap: anywhere;
+  cursor: pointer;
 }
+.cd-title:focus-visible { outline: 2px solid var(--el-color-primary); outline-offset: 3px; }
 .cd-date {
   font-size: 12px;
   color: var(--el-text-color-secondary);
@@ -1260,6 +1315,41 @@ function onWindowResize() {
 }
 .cd-del:hover {
   color: var(--el-color-danger);
+}
+.cd-timeline {
+  max-width: 880px;
+  margin: clamp(24px, 5vh, 56px) auto 0;
+  padding: clamp(12px, 2vw, 24px);
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: var(--wb-radius-card);
+  background: var(--el-fill-color-extra-light);
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+.cd-timeline-head, .cd-timeline-dates { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.cd-timeline-head strong { flex: none; color: var(--el-text-color-primary); font-size: 13px; }
+.cd-timeline-status { display: flex; gap: 5px; min-width: 0; white-space: nowrap; color: var(--wb-accent-text); }
+.cd-timeline-event { overflow: hidden; text-overflow: ellipsis; }
+.cd-timeline-plot { display: block; margin-top: 6px; }
+.cd-timeline-track { stroke: var(--el-border-color-dark); stroke-width: 2; }
+.cd-timeline-segment {
+  stroke: var(--el-color-primary);
+  stroke-width: 2;
+  opacity: 0;
+  transition: stroke-dashoffset 240ms ease, opacity 180ms ease;
+}
+.cd-segment-active { opacity: 1; }
+.cd-timeline-today { fill: var(--wb-accent-text); }
+.cd-timeline-marker { fill: var(--el-bg-color); stroke: var(--el-text-color-placeholder); stroke-width: 1.5; transition: fill 180ms ease, stroke 180ms ease; }
+.cd-marker-active { fill: var(--el-color-primary); stroke: var(--el-color-primary); }
+.cd-timeline-pulse { fill: none; stroke: var(--el-color-primary); stroke-width: 2; opacity: 0; animation: cd-timeline-pulse 680ms ease-out; }
+@keyframes cd-timeline-pulse {
+  0% { r: 4px; opacity: 1; }
+  100% { r: 14px; opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cd-timeline-segment, .cd-timeline-marker { transition: none; }
+  .cd-timeline-pulse { animation: none; }
 }
 .pomo-panel {
   max-width: 1040px;
