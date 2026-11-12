@@ -351,6 +351,10 @@ onUnmounted(() => {
   flex-basis: 0;
   min-height: 380px;
 }
+.workspace-page:has(> .prompt-workspace-page) {
+  flex-basis: 0;
+  min-height: 0;
+}
 .main:has(> .workspace-page > .project-files-page) {
   scrollbar-width: none;
 }

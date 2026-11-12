@@ -717,6 +717,7 @@ const curPromptId = ref(0)
 const promptForm = ref({ name: '', content: '', cases: [] as { input: string; expected: string }[] })
 const promptSearch = ref('')
 const promptPageEl = ref<HTMLElement>()
+const promptEditorEl = ref<HTMLElement>()
 const promptCompact = useCompactLayout(promptPageEl, 980)
 const promptListVisible = ref(false)
 const promptSaving = ref(false)
@@ -758,6 +759,7 @@ function resetPrompt(p?: PromptRecord) {
   } : { name: '', content: '', cases: [] }
   promptSnapshot.value = JSON.stringify(promptForm.value)
   promptSaveError.value = ''
+  promptEditorEl.value?.scrollTo({ top: 0 })
   if (promptCompact.value) promptListVisible.value = false
 }
 
@@ -940,7 +942,7 @@ function onThemeChange() {
 </script>
 
 <template>
-  <div class="ai-page">
+  <div class="ai-page" :class="{ 'prompt-workspace-page': activeTab === 'prompts' }">
     <!-- ==================== 账户余额 ==================== -->
     <div v-show="activeTab === 'balance'">
       <div class="tab-head">
@@ -1172,7 +1174,7 @@ function onThemeChange() {
     </div>
 
     <!-- ==================== Prompt 库 ==================== -->
-    <div ref="promptPageEl" v-show="activeTab === 'prompts'" :class="{ compact: promptCompact }">
+    <div ref="promptPageEl" v-show="activeTab === 'prompts'" class="prompt-page" :class="{ compact: promptCompact }">
       <div v-if="promptCompact" class="prompt-list-toggle">
         <el-button :aria-expanded="promptListVisible" @click="promptListVisible = !promptListVisible">{{ promptListVisible ? '收起提示词列表' : '展开提示词列表' }}</el-button>
         <el-button :icon="Plus" @click="newPrompt">新建提示词</el-button>
@@ -1185,21 +1187,23 @@ function onThemeChange() {
             <el-button size="small" type="primary" :icon="Plus" @click="newPrompt">新建</el-button>
           </div>
           <div class="pl-items">
-            <div
+            <button
               v-for="p in filteredPrompts"
               :key="p.id"
+              type="button"
               class="pl-item"
               :class="{ active: p.id === curPromptId }"
+              :aria-current="p.id === curPromptId ? 'true' : undefined"
               @click="selectPrompt(p)"
             >
-              <div class="pl-name">{{ p.name }}</div>
-              <div class="pl-meta">v{{ p.version }} · {{ p.cases.length }} 个用例 · {{ p.updatedAt.slice(0, 10) }}</div>
-            </div>
+              <span class="pl-name">{{ p.name }}</span>
+              <span class="pl-meta">v{{ p.version }} · {{ p.cases.length }} 个用例 · {{ p.updatedAt.slice(0, 10) }}</span>
+            </button>
             <el-empty v-if="!filteredPrompts.length" description="还没有提示词" :image-size="70" />
           </div>
         </aside>
 
-        <section class="pl-editor" data-ai-context="true" data-ai-entity="prompt" :data-ai-id="curPromptId">
+        <section ref="promptEditorEl" class="pl-editor" data-ai-context="true" data-ai-entity="prompt" :data-ai-id="curPromptId">
           <div class="pl-editor-head">
             <el-input v-model="promptForm.name" class="prompt-name-input" placeholder="如：SVG 图标生成器" aria-label="提示词名称" />
           <div class="editor-actions">
@@ -1228,7 +1232,7 @@ function onThemeChange() {
           <div class="case-head">
             <span>测试用例（{{ promptForm.cases.length }}）</span>
             <div>
-              <el-button size="small" :icon="Plus" @click="addCase">加一条</el-button>
+              <el-button class="prompt-add-case" size="small" :icon="Plus" @click="addCase">加一条</el-button>
               <el-button size="small" :disabled="!promptForm.content.trim()" @click="pushPromptToCompare">新建对比主题</el-button>
             </div>
           </div>
@@ -1237,9 +1241,22 @@ function onThemeChange() {
             <el-input v-model="c.expected" size="small" placeholder="期望输出（可选）" />
             <el-button size="small" text type="danger" :icon="Delete" @click="removeCase(i)" />
           </div>
-          <el-empty v-if="!promptForm.cases.length" description="没有用例，模型对比时可临时填写" :image-size="60" />
-
-
+          <div v-if="!promptForm.cases.length" class="prompt-case-empty" :class="{ 'has-variables': previewVars.length }">
+            <svg class="prompt-case-illustration" viewBox="0 0 300 106" fill="none" aria-hidden="true" focusable="false">
+              <path class="prompt-flow-track" d="M81 53h136" stroke-dasharray="3 5" />
+              <path class="prompt-flow-highlight" pathLength="1" d="M81 53h136" />
+              <g class="prompt-flow-source">
+                <rect x="20" y="22" width="64" height="62" rx="8" />
+                <path class="prompt-flow-braces" d="M45 40c-7 0-7 4-7 9 0 3-1 4-4 4 3 0 4 1 4 4 0 5 0 9 7 9m14-26c7 0 7 4 7 9 0 3 1 4 4 4-3 0-4 1-4 4 0 5 0 9-7 9" />
+              </g>
+              <circle class="prompt-flow-node" cx="150" cy="53" r="4" />
+              <g class="prompt-flow-result">
+                <rect x="216" y="22" width="64" height="62" rx="8" />
+                <path d="M232 42h32m-32 11h24m-24 11h29" />
+              </g>
+            </svg>
+            <p>可添加一组输入和期望输出，也可在模型对比时临时填写。</p>
+          </div>
         </section>
       </div>
     </div>
@@ -1712,50 +1729,71 @@ function onThemeChange() {
 }
 
 .prompt-list-toggle { display: flex; gap: 8px; margin-bottom: 10px; }
-.prompt-layout { position: relative; min-height: 500px;
+.prompt-workspace-page, .prompt-page { min-height: 0; }
+.prompt-page { display: flex; flex: 1; flex-direction: column; }
+.prompt-list-toggle { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.prompt-list-toggle .el-button + .el-button { margin-left: 0; }
+.prompt-layout {
+  position: relative;
+  flex: 1;
+  min-height: 0;
   display: flex;
   gap: 14px;
-  align-items: flex-start;
 }
-.compact .pl-list { position: absolute; inset: 0 auto auto 0; z-index: 4; width: min(300px, calc(100% - 40px)); box-sizing: border-box; max-height: 100%; background: var(--el-bg-color); box-shadow: var(--el-box-shadow-light); }
-.compact .pl-items { max-height: 420px; }
+.compact .pl-list { position: absolute; inset: 0 auto 0 0; z-index: 4; width: min(300px, calc(100% - 40px)); background: var(--el-bg-color); box-shadow: var(--el-box-shadow-light); }
 .prompt-backdrop { position: absolute; inset: 0; border: 0; background: rgb(0 0 0 / 20%); z-index: 3; cursor: pointer; }
 .pl-editor-head { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; position: sticky; top: 0; z-index: 2; background: var(--el-bg-color); padding: 10px; margin-bottom: 12px; border-bottom: 1px solid var(--el-border-color); }
-.prompt-name-input { flex: 1; min-width: 220px; }
+.prompt-name-input { flex: 1; min-width: min(220px, 100%); }
 .pl-editor-head .editor-actions { margin-top: 0; align-items: center; flex-wrap: wrap; }
 .compact .case-head { flex-wrap: wrap; gap: 8px; }
 .compact .case-row { grid-template-columns: minmax(0, 1fr) auto; }
 .compact .case-row > :nth-child(2) { grid-column: 1; }
 .compact .case-row > :last-child { grid-column: 2; grid-row: 1 / 3; }
 .pl-list {
-  width: 240px;
+  width: 262px;
+  min-height: 0;
   flex-shrink: 0;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
   border: 1px solid var(--el-border-color);
   border-radius: var(--wb-radius-card);
   padding: 10px;
 }
 .pl-head {
   display: flex;
+  flex-shrink: 0;
   gap: 6px;
   margin-bottom: 10px;
 }
 .pl-items {
-  max-height: 560px;
+  flex: 1;
+  min-height: 0;
   overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
 }
 .pl-item {
+  display: block;
+  width: 100%;
   padding: 8px 10px;
+  border: 0;
   border-radius: var(--wb-radius-base);
+  background: transparent;
+  text-align: left;
+  font: inherit;
   cursor: pointer;
   margin-bottom: 2px;
 }
 .pl-item:hover {
   background: var(--el-fill-color-light);
 }
+.pl-item:focus-visible { outline: 2px solid var(--el-color-primary); outline-offset: -2px; }
 .pl-item.active {
   background: var(--el-color-primary-light-9);
 }
 .pl-name {
+  display: block;
   font-size: 13px;
   color: var(--el-text-color-primary);
   font-weight: 500;
@@ -1767,6 +1805,7 @@ function onThemeChange() {
   color: var(--wb-accent-text);
 }
 .pl-meta {
+  display: block;
   font-size: 11px;
   color: var(--el-text-color-disabled);
   margin-top: 2px;
@@ -1774,6 +1813,8 @@ function onThemeChange() {
 .pl-editor {
   flex: 1;
   min-width: 0;
+  overflow: auto;
+  scrollbar-width: thin;
 }
 .var-tags {
   display: flex;
@@ -1794,6 +1835,46 @@ function onThemeChange() {
   grid-template-columns: 1fr 1fr auto;
   gap: 6px;
   margin-bottom: 6px;
+}
+.prompt-case-empty {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 14px 10px 22px;
+  color: var(--el-text-color-secondary);
+  text-align: center;
+  font-size: 12px;
+}
+.prompt-case-empty p { margin: 0; line-height: 1.6; }
+.prompt-case-illustration {
+  width: min(100%, 300px);
+  color: color-mix(in srgb, var(--el-color-primary) 30%, var(--el-border-color-dark));
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  animation: prompt-case-enter 360ms ease-out;
+}
+.prompt-flow-source rect, .prompt-flow-result rect, .prompt-flow-node { fill: var(--el-bg-color); }
+.prompt-flow-braces { transition: stroke 220ms ease; }
+.has-variables .prompt-flow-braces { stroke: var(--el-color-primary); }
+.prompt-flow-highlight {
+  stroke: var(--el-color-primary);
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  opacity: 0;
+  transition: stroke-dashoffset 320ms ease, opacity 220ms ease;
+}
+.prompt-flow-result { transition: transform 240ms ease; }
+.pl-editor:has(.prompt-add-case:is(:hover, :focus-visible)) .prompt-flow-highlight { stroke-dashoffset: 0; opacity: 1; }
+.pl-editor:has(.prompt-add-case:is(:hover, :focus-visible)) .prompt-flow-result { transform: translateX(4px); }
+@keyframes prompt-case-enter {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .prompt-case-illustration { animation: none; }
+  .prompt-flow-braces, .prompt-flow-highlight, .prompt-flow-result { transition: none; }
 }
 .editor-actions {
   margin-top: 14px;
