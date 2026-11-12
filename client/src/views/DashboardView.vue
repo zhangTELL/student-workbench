@@ -9,6 +9,7 @@ import { Check, Edit, Refresh } from '@element-plus/icons-vue'
 import { get, post } from '../api/http'
 import AppIcon from '../components/AppIcon.vue'
 import CardLoadStatus from '../components/CardLoadStatus.vue'
+import { useRememberedSelection } from '../composables/useRememberedSelection'
 import { DEFAULT_NAME, displayName, NAME_MAX, saveDisplayName } from '../stores/profile'
 import type { IconKey } from '../utils/themeIcons'
 import { themedIcon } from '../utils/themeIcons'
@@ -121,20 +122,13 @@ const swaps = ref<ScheduleSwap[]>([])
 const homework = ref<ChaoxingHomework[]>([])
 const countdowns = ref<Countdown[]>([])
 const runs = ref<RunsView | null>(null)
-const lowBalances = ref<{ id: number; name: string; available: number; currency: string }[]>([])
+const lowBalances = ref<{ name: string; available: number; currency: string }[]>([])
 const balanceDismissalKey = 'wb.dashboard.dismissedBalance'
-function readBalanceDismissal() {
-  try { return sessionStorage.getItem(balanceDismissalKey) ?? '' } catch { return '' }
+function wasDismissedInSession() {
+  try { return !!sessionStorage.getItem(balanceDismissalKey) } catch { return false }
 }
-const dismissedBalance = ref(readBalanceDismissal())
-const balanceAlertKey = computed(() => lowBalances.value.map(balance => balance.id).sort((a, b) => a - b).join(','))
-function rememberBalanceDismissal(key: string) {
-  dismissedBalance.value = key
-  try {
-    if (key) sessionStorage.setItem(balanceDismissalKey, key)
-    else sessionStorage.removeItem(balanceDismissalKey)
-  } catch { /* 当前页面仍可关闭提示 */ }
-}
+const dismissedBalance = useRememberedSelection<boolean>(balanceDismissalKey, wasDismissedInSession(),
+  (value): value is true => value === true)
 const checking = ref(false)
 const homeworkConfigured = ref(false)
 const cardStates = reactive({
@@ -458,11 +452,10 @@ async function loadLowBalance() {
       if (!snap || snap.status !== 'ok' || typeof snap.available !== 'number') continue
       if (snap.available < (v.settings?.lowThreshold ?? 10)) {
         // 逆向端点会给到 3.70388032 这种长小数，展示前先量化，否则标题会拖一长串
-        out.push({ id: p.id, name: p.name, available: Math.round(snap.available * 100) / 100, currency: snap.currency })
+        out.push({ name: p.name, available: Math.round(snap.available * 100) / 100, currency: snap.currency })
       }
     }
     lowBalances.value = out
-    if (dismissedBalance.value && dismissedBalance.value !== balanceAlertKey.value) rememberBalanceDismissal('')
   } catch (e) { throw e }
 }
 
@@ -538,11 +531,10 @@ onMounted(loadAll)
 
     <CardLoadStatus v-if="cardStates.balance.error" :state="cardStates.balance" @retry="refreshCard('balance')" />
     <el-alert
-      v-if="balanceAlertKey && balanceAlertKey !== dismissedBalance"
-      :key="balanceAlertKey"
+      v-if="lowBalances.length && !dismissedBalance"
       type="warning"
       show-icon
-      @close="rememberBalanceDismissal(balanceAlertKey)"
+      @close="dismissedBalance = true"
       :title="`${lowBalances.map((b) => `${b.name} ${b.currency === 'USD' ? '$' : '¥'}${b.available.toFixed(2)}`).join('、')} 余额偏低`"
       description="在「AI 实验区 → 账户余额」可以看到走势、调整提醒金额"
     />

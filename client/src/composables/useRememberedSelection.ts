@@ -1,7 +1,7 @@
 import { shallowRef, watch } from 'vue'
 
 /** 记住本机上次选择；存储不可用或旧值无效时使用默认值。 */
-export function useRememberedSelection<T extends string | number>(key: string, fallback: T, isValid: (value: unknown) => value is T) {
+export function useRememberedSelection<T extends string | number | boolean>(key: string, fallback: T, isValid: (value: unknown) => value is T) {
   const selection = shallowRef<T>(fallback)
   try {
     const raw = localStorage.getItem(key)
