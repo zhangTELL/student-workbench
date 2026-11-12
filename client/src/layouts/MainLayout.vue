@@ -278,11 +278,13 @@ onUnmounted(() => {
 .pomo-mini a { color: var(--el-color-primary); font-variant-numeric: tabular-nums; text-decoration: none; }
 .aside {
   overflow-x: hidden;
+  scrollbar-width: none;
   background: var(--el-bg-color);
   border-right: 1px solid var(--el-border-color-light);
   display: flex;
   flex-direction: column;
 }
+.aside::-webkit-scrollbar { display: none; }
 .logo {
   display: flex;
   align-items: center;
