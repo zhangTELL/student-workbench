@@ -54,9 +54,7 @@ Windows 用户可从 [发布](https://github.com/zhangTELL/yoshinove-workbench/r
 | 要求 | 原因 |
 |---|---|
 | **Node.js 26** | `better-sqlite3` v12+ 需按 Node 26 的 ABI 编译。用 Node 22 会报 `ERR_DLOPEN_FAILED: NODE_MODULE_VERSION 147 vs 127` |
-| **pnpm 11** | 原生包构建放行写在根目录 `pnpm-workspace.yaml` 的 `allowBuilds` 里，pnpm 只认这个配置 |
-
-本机验证过的版本：Node `v26.2.0` + pnpm `11.18.0`。
+| **pnpm 11 或 12** | 安装依赖时使用工作区的原生包构建配置 |
 
 数据默认保存在 `server/data`，可通过 `WORKBENCH_DATA_DIR` 更换目录；数据库、图片、笔记主题和桌宠配置统一使用该目录，更换前请先复制原数据。网页与后端端口可分别用 `WORKBENCH_WEB_PORT` 和 `PORT` 配置，默认 `5173` / `5175`，仅监听本机。
 

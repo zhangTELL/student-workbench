@@ -67,9 +67,13 @@ try {
         throw "需要 Node.js 26，当前为 $nodeVersion，路径：$($node.Source)"
     }
     $pnpm = Get-Command pnpm.cmd -CommandType Application -ErrorAction Stop | Select-Object -First 1
-    $pnpmVersion = & $pnpm.Source --version
-    if ($LASTEXITCODE -ne 0 -or $pnpmVersion -notmatch '^11\.') {
-        throw "需要 pnpm 11，当前为 $pnpmVersion。"
+    $pnpmVersion = (& $pnpm.Source --version) -join ''
+    if ($LASTEXITCODE -ne 0) { throw "pnpm 无法执行，路径：$($pnpm.Source)" }
+    if ($pnpmVersion -notmatch '^(?<major>\d+)\.') { throw "无法识别 pnpm 版本：$pnpmVersion" }
+    # 支持已验证能按 allowBuilds 安装原生依赖的 pnpm 11 和 12。
+    $pnpmMajor = [int]$Matches['major']
+    if ($pnpmMajor -lt 11 -or $pnpmMajor -gt 12) {
+        throw "需要 pnpm 11 或 12，当前为 $pnpmVersion。"
     }
     # 把校验过的这个 Node 26 目录前置到子进程 PATH：pnpm 拉起 .bin shim 时按 PATH 找 node，
     # 若机器上还有别的 Node（如 22）排在前面，better-sqlite3 会因 ABI 不匹配当场崩溃。
