@@ -1,10 +1,10 @@
-# Yoshinove工作台
+# 学生工作台
 
 面向个人的学生工作台：把课表、上课提醒、作业 DDL、健康跑打卡（里程/步数记录与图表分析）、成绩绩点、笔记和 AI 实验整合到一个本地 Web 应用里。
 
 当前形态是**本地 Web 应用**（前后端在本机跑）
 
-Windows 用户可从 [Releases](https://github.com/zhangTELL/yoshinove-workbench/releases/latest) 下载免安装 ZIP，解压后双击「启动工作台.bat」，无需安装 Node、pnpm 或 PowerShell 7。
+Windows 用户可从 [发布](https://github.com/zhangTELL/yoshinove-workbench/releases/latest) 下载免安装 ZIP，解压后双击「启动工作台.bat」，无需安装 Node、pnpm 或 PowerShell 7。
 
 ## AI 助手与桌宠
 
@@ -121,8 +121,6 @@ pnpm dev:client    # 仅前端
 ├── tools/icon/                  # 图标生成：抠白底（边缘 flood fill）+ 出各档成品 + 透明度自检
 ├── tools/miko_assets.py         # 巫女·和风主题立绘加工（素材/ → client/public/theme-local/，均不入库）
 ├── tools/palette_check.mjs      # 主题配色数值验证（对比度/两两色差口径，调色板改动后重跑）
-├── 交接文档.md                   # ★ 开发交接：实现细节、接口契约、踩坑清单
-└── 开发计划.md                   # 需求与阶段进度
 ```
 
 ---
