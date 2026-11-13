@@ -36,9 +36,6 @@ export async function loadAssistant() {
 export async function saveAssistantKey(apiKey: string) {
   assistant.config = await put<AssistantConfig>('/api/assistant/config', { apiKey })
 }
-export async function saveAssistantPreferences(preferences: Pick<AssistantConfig, 'name' | 'petDoubleClick'>) {
-  assistant.config = await put<AssistantConfig>('/api/assistant/config', preferences)
-}
 export async function switchAssistantSession(id?: string) {
   if (assistant.switching || assistant.sending || assistant.state.busy) return false
   if (assistant.state.pending) { assistant.error = '请先撤销或确定当前修改，再新建或切换会话。'; return false }

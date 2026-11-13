@@ -45,7 +45,7 @@ try {
   );
   process.exit(3);
 }
-const { app, BrowserWindow, ipcMain, screen, shell, protocol, globalShortcut, session } = electronApi;
+const { app, BrowserWindow, desktopCapturer, ipcMain, screen, shell, protocol, globalShortcut, session } = electronApi;
 const { createBridgeCallbackServer } = require('./bridge-security.js');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
@@ -567,13 +567,13 @@ function bridgeRequest(method, url, body) {
     const id = ++bridgeSeq;
     bridgePending.set(id, { resolve, reject });
     process.stdout.write(BRIDGE_PREFIX + JSON.stringify({ id, method, url, body, cb: bridgeCallbackUrl }) + '\n');
-    // 宿主若长期不应答（进程退出/宿主动作挂起）不无限挂起：45s 兜底（LLM 生成最长 30-60s）
+    const chatRequest = method === 'POST' && url.startsWith('/dsh-pet-7340/chat?');
     setTimeout(() => {
       const p = bridgePending.get(id);
       if (!p) return;
       bridgePending.delete(id);
       p.reject(new Error('bridge request timeout'));
-    }, 45000).unref?.();
+    }, chatRequest ? 124000 : 45000).unref?.();
   });
 }
 
@@ -643,7 +643,7 @@ app.whenReady().then(async () => {
     target.showInactive();
     target.focus();
     target.webContents.send('workbench:quick-chat');
-  })) console.warn('[AI助手 桌宠] Ctrl+Alt+K 已被其他应用占用，仍可右键或双击宠物对话');
+  })) console.warn('[AI助手 桌宠] Ctrl+Alt+K 已被其他应用占用，仍可右键打开对话');
   console.error(
     '[dsh-pet-desktop-helper] displays: ' +
       JSON.stringify(deskGeometry()) +
@@ -670,6 +670,19 @@ app.whenReady().then(async () => {
   }
 
   const ownsPage = contents => !!contents && [...windows.values()].some(win => !win.isDestroyed() && win.webContents === contents);
+  ipcMain.handle('pet:capture-screen', async event => {
+    if (!ownsPage(event.sender) || event.senderFrame !== event.sender.mainFrame) throw new Error('无法截屏');
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win?.isFocused()) throw new Error('请先聚焦桌宠对话框');
+    const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+    const scale = Math.min(1, 2048 / Math.max(display.size.width, display.size.height));
+    const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: {
+      width: Math.round(display.size.width * scale), height: Math.round(display.size.height * scale),
+    } });
+    const source = sources.find(item => item.display_id === String(display.id)) ?? (sources.length === 1 ? sources[0] : undefined);
+    if (!source || source.thumbnail.isEmpty()) throw new Error('未能获取当前屏幕截图');
+    return source.thumbnail.toJPEG(85);
+  });
   session.defaultSession.setPermissionRequestHandler((contents, permission, callback) => callback(permission === 'notifications' && ownsPage(contents)));
   session.defaultSession.setPermissionCheckHandler((contents, permission) => permission === 'notifications' && ownsPage(contents));
 
@@ -830,11 +843,6 @@ app.whenReady().then(async () => {
       return;
     }
     openSite(url);
-  });
-  // 助手入口使用宿主提供的站点地址，跟随网页端口配置。
-  ipcMain.on('pet:open-assistant', () => {
-    const site = process.env.DSH_PET_SITE_URL || '';
-    if (/^https?:[/][/]/.test(site)) openSite(site);
   });
 
   // 显示器热更新：分辨率/缩放变化、插拔屏、旋转都会让桌面几何失效。原先几何只在
@@ -1060,6 +1068,20 @@ app.whenReady().then(async () => {
                 }
               }
               return out;
+            })(),
+            chatSmoke: (() => {
+              const item = [...document.querySelectorAll('.dsh-pet-menu-item')]
+                .find(node => node.textContent.trim() === '对话');
+              if (!item) return { opened: false };
+              item.click();
+              const dialog = document.querySelector('.dsh-pet-chat');
+              const input = dialog?.querySelector('textarea');
+              if (!input) return { opened: false };
+              const focused = input === document.activeElement;
+              const imageTools = dialog.querySelectorAll('.dsh-pet-chat-tool:not([hidden])').length;
+              const title = document.title;
+              document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+              return { opened: true, focused, imageTools, title, escaped: !document.querySelector('.dsh-pet-chat') };
             })(),
           }))()`);
           console.error(

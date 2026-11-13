@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { resolveDataDir } from '../config.js'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { FastifyPluginAsync } from 'fastify'
-import type { createAssistant } from '../services/assistant.js'
+import type { AssistantImage, createAssistant } from '../services/assistant.js'
 
 type Assistant = ReturnType<typeof createAssistant>
 interface PetRuntime {
@@ -44,10 +44,11 @@ export const petRoutes: FastifyPluginAsync<{ assistant: Assistant; port: number 
     const runtime = mountPetHost({
       key: assistant.readKey,
       config: assistant.config,
-      chat: async (text: string, persona: string, messages: { role: string; content: { type: string; text: string }[] }[]) => {
+      setPetNameSource: assistant.setPetNameSource,
+      chat: async (text: string, persona: string, messages: { role: string; content: { type: string; text: string }[] }[], attachment?: AssistantImage) => {
         const history = messages.slice(0, -1).map(message => ({ role: message.role, content: message.content.filter(block => block.type === 'text').map(block => block.text).join('') }))
         const imageGuide = messages.at(-1)?.content.filter(block => block.type === 'text').map(block => block.text).join('').slice(text.length) ?? ''
-        return (await assistant.chat(text, { path: '/desktop-pet' }, persona + imageGuide, history)).answer
+        return (await assistant.chat(text, { path: '/desktop-pet' }, persona + imageGuide, history, attachment)).answer
       },
       whisper: assistant.whisper,
       pending: () => { const turn = assistant.state().pending; return turn ? { id: turn.id, answer: turn.answer } : null },

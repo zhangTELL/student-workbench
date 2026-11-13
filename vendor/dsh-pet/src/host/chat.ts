@@ -31,6 +31,7 @@ import { PET_CALL_IDENTITY, noTextReason } from './llm-call';
 import { supportsReasoningOff } from './llm-reasoning';
 import { extractChatImage, memeCatalog, type MemeEntry } from './memes';
 import { modelCandidates, modelLabel, type ModelRef } from './model-selection';
+import type { ChatImage } from '../shared/chat-image';
 
 /** 生成失败原因（与 shared/whisper.ts 的 WhisperState 失败分支同构） */
 export type ChatGenerateResult =
@@ -73,6 +74,7 @@ export async function generateChat(
   userText: string,
   pool: MemeEntry[] = [],
   preferred?: ModelRef,
+  attachment?: ChatImage,
 ): Promise<ChatGenerateResult> {
   // 候选链：配置的模型优先 → 当前对话的模型兜底（chatModel 留空时链上只有后者，与旧版逐字一致）
   const candidates = modelCandidates(ctx, preferred);
@@ -88,7 +90,7 @@ export async function generateChat(
   // 兜底文案与失败分支同源，避免两处字面量漂移
   let last: ChatGenerateResult = { ok: false, reason: 'generate-error', message: noTextReason(undefined) };
   for (const [i, sel] of candidates.entries()) {
-    const result = await generateWith(ctx, llm, sel, system, history, userText, pool);
+    const result = await generateWith(ctx, llm, sel, system, history, userText, pool, attachment);
     if (result.ok) return result;
     last = result;
     // 回落要留痕：配的模型没生效时能在日志里看到原因（否则"我明明配了 A，怎么还是用 B"没法查）
@@ -110,6 +112,7 @@ async function generateWith(
   history: ChatMemoryMessage[],
   userText: string,
   pool: MemeEntry[],
+  attachment?: ChatImage,
 ): Promise<ChatGenerateResult> {
   // 历史 → dsh-llm 消息：user 经 createUserMessage（plugin 来源），assistant 经 createAssistantMessage
   const historyMessages = history.map((m) =>
@@ -134,6 +137,7 @@ async function generateWith(
   const options = {
     workbenchAction: 'chat',
     workbenchUserText: userText,
+    workbenchAttachment: attachment,
     provider: sel.provider,
     model: sel.model,
     // 调用身份（见 llm-call.ts）：缺它时 opencode-go 回 400

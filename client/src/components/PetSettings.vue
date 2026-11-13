@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { get, post } from '../api/http'
-import { editablePetConfig, type PetConfig, type PetConfigMeta, type PetSettingsConfig } from '../pet/config'
+import { editablePetConfig, PET_SETTINGS_SAVED, type PetConfig, type PetConfigMeta, type PetSettingsConfig } from '../pet/config'
+import { loadAssistant } from '../stores/assistant'
 import { useUnsavedChanges } from '../composables/useUnsavedChanges'
 
 const draft = ref<PetSettingsConfig>()
@@ -56,6 +57,14 @@ async function writeConfig(payload: PetSettingsConfig, force = false): Promise<P
   if (!response.ok) throw new Error('桌宠设置保存失败，请检查配置后重试')
   return response.json() as Promise<PetConfig>
 }
+function publishSaved(config: PetConfig) {
+  apply(config)
+  document.dispatchEvent(new CustomEvent<PetConfig>(PET_SETTINGS_SAVED, { detail: config }))
+  void loadAssistant().catch(() => {})
+}
+function syncSaved(event: Event) {
+  if (!saving.value && !dirty.value) apply((event as CustomEvent<PetConfig>).detail)
+}
 async function save(): Promise<boolean> {
   if (!draft.value || saving.value || loading.value) return false
   saving.value = true
@@ -63,7 +72,7 @@ async function save(): Promise<boolean> {
   try {
     const latest = await get<PetConfig>('/dsh-pet-7340/config')
     if (JSON.stringify(editablePetConfig(latest.main)) !== initial.value) throw new Error('桌宠设置已在其他位置更新，请重新载入后再保存。')
-    apply(await writeConfig(editablePetConfig(draft.value)))
+    publishSaved(await writeConfig(editablePetConfig(draft.value)))
     ElMessage.success('桌宠设置已保存')
     return true
   } catch (cause) {
@@ -96,7 +105,7 @@ async function reset() {
   } catch { return }
   saving.value = true
   error.value = ''
-  try { apply(await post<PetConfig>('/dsh-pet-7340/config')); ElMessage.success('已恢复桌宠默认设置') }
+  try { publishSaved(await post<PetConfig>('/dsh-pet-7340/config')); ElMessage.success('已恢复桌宠默认设置') }
   catch (cause) { error.value = (cause as Error).message }
   finally { saving.value = false }
 }
@@ -111,14 +120,15 @@ async function testNotification() {
     ElMessage.success('测试通知已发送')
   }
 }
-onMounted(() => { void load() })
+onMounted(() => { void load(); document.addEventListener(PET_SETTINGS_SAVED, syncSaved) })
+onUnmounted(() => document.removeEventListener(PET_SETTINGS_SAVED, syncSaved))
 </script>
 
 <template>
   <section class="pet-settings" aria-label="桌宠设置">
     <el-card v-loading="loading">
       <template #header><div class="pet-card-head"><span>桌宠</span><el-button type="primary" :loading="saving" :disabled="loading || !draft" @click="save">保存桌宠设置</el-button></div></template>
-      <p class="pet-description">网页和独立桌面窗口共用配置。双击或右键桌宠即可快速对话，桌面端也支持 Ctrl+Alt+K。</p>
+      <p class="pet-description">右键桌宠并选择「对话」，也可在悬停时按 L。桌面端还支持 Ctrl+Alt+K。首只桌宠的名称也用于 AI 侧栏。</p>
       <p class="pet-description">对话与碎碎念使用 AI 助手中填写的 DeepSeek Key，启用自动碎碎念会使用 API 额度。</p>
       <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon><el-button text :disabled="saving" @click="load">重新载入</el-button></el-alert>
       <template v-if="draft">

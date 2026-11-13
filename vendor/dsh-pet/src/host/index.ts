@@ -62,6 +62,7 @@
  */
 import { createReadStream, existsSync, fstatSync, readFileSync } from 'node:fs';
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
+import { isChatImage, type ChatImage } from '../shared/chat-image';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { homedir } from 'node:os';
 import { join, normalize, resolve, sep } from 'node:path';
@@ -517,6 +518,7 @@ export function apply(ctx: any): void {
   const chatWithPet = async (
     petId: string,
     text: string,
+    attachment?: ChatImage,
   ): Promise<{ ok: true } | { ok: false; reason: 'provider-missing' | 'generate-error'; message?: string }> =>
     withMemoryLock(async () => {
       const cfg = readAllConfig(configPaths);
@@ -539,7 +541,7 @@ export function apply(ctx: any): void {
       // 不能写 slice(-rounds * 2)：-0 在 JS 里 === 0，slice(-0) 返回整个数组而不是空。
       const list = sliceMemoryRounds(entry.messages, rounds);
       // 模型：条目配置的 chatModel 优先（留空 = 不指定）；生成侧失败会回落到当前对话的模型重试一次
-      const generated = await generateChat(ctx, system, list, text, pool, configuredModel(conf, 'chatModel'));
+      const generated = await generateChat(ctx, system, list, text, pool, configuredModel(conf, 'chatModel'), attachment);
       if (!generated.ok) return generated;
       const now = Date.now();
       entry.messages.push({ role: 'user', content: text, ts: now });
@@ -560,6 +562,13 @@ export function apply(ctx: any): void {
    * 字段填满），命令与桌面模式都从这里取。
    */
   const effectivePetList = (): Record<string, unknown>[] => flattenPetList(readAllConfig(configPaths));
+  ctx.workbench?.setPetNameSource?.(() => {
+    try {
+      const main = readAllConfig(configPaths).main;
+      const name = Array.isArray(main?.pets) ? main.pets[0]?.name : undefined;
+      return typeof name === 'string' && name.trim() ? name : undefined;
+    } catch { return undefined; }
+  });
 
   /** 余额刷新周期（秒）：成品 main 条目的 eventsRefreshSec.balance（合并器已填默认；非法兜底 1800） */
   const balancePeriodSec = (cfg: Record<string, Record<string, unknown>>): number => {
@@ -1245,8 +1254,12 @@ export function apply(ctx: any): void {
               obj: { ok: false, reason: 'bad-request', message: '消息过长（限 2000 字）' },
             };
           }
-          const result = await chatWithPet(petId, text);
-          return { kind: 'json', status: 200, obj: { ...result, review: ctx.workbench?.pending?.() } };
+          const attachment = parsed.attachment;
+          if (attachment !== undefined && !isChatImage(attachment)) {
+            return { kind: 'json', status: 400, obj: { ok: false, reason: 'bad-request', message: '图片格式或大小不受支持' } };
+          }
+          const result = await chatWithPet(petId, text, attachment);
+          return { kind: 'json', status: 200, obj: { ...result, ...(result.ok ? { review: ctx.workbench?.pending?.() } : {}) } };
         }
         return { kind: 'json', status: 405, obj: { error: 'method not allowed' } };
       } catch (e) {

@@ -85,6 +85,7 @@ async function boot() {
       return;
     }
     for (const s of sprites) s.dispose();
+    document.title = pet.name + ' · 桌宠';
     sprites = [new PetSprite(pet)];
     window.__dshPetDebug.configOk = true;
     window.__dshPetDebug.spriteCount = sprites.length;

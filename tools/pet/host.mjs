@@ -15,6 +15,7 @@ export function mountPetHost(callbacks, port) {
     setState: state => { petState = state },
     pending: callbacks.pending,
     config: callbacks.config,
+    setPetNameSource: callbacks.setPetNameSource,
     review: callbacks.review,
   }
   ctx.llm = {
@@ -23,7 +24,7 @@ export function mountPetHost(callbacks, port) {
     resolveModelInfo: async () => ({ reasoningEfforts: false }),
     async *stream(options) {
       const answer = options.workbenchAction === 'chat'
-        ? await callbacks.chat(options.workbenchUserText, options.system, options.messages)
+        ? await callbacks.chat(options.workbenchUserText, options.system, options.messages, options.workbenchAttachment)
         : await callbacks.whisper(options.system, options.messages)
       yield { type: 'text', text: answer }
     },

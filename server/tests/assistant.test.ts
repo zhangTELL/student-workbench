@@ -259,6 +259,26 @@ test('名称和双击偏好独立保存，非法偏好不写入 Key，模型使�
   assert.doesNotMatch(JSON.stringify(s.requests[0].messages), /小TELL/)
 })
 
+test('桌宠配置是助手的名称来源，图片随当前消息发送且不进入会话正文', async t => {
+  const s = setup([{ choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: '收到图片。' } }] }]); t.after(() => s.app.close())
+  const assistant = createAssistant(s.database, s.fetcher)
+  assistant.saveConfig({ name: '旧别名', apiKey: 'sk-test-only' })
+  let petName = '蓝鲸'
+  assistant.setPetNameSource(() => petName)
+  assert.equal(assistant.config().name, '蓝鲸')
+  assert.throws(() => assistant.saveConfig({ name: '另一名字' }), /桌宠设置/)
+  petName = '白鲸'
+  const turn = await assistant.chat('看图', { path: '/desktop-pet' }, '', [], { mediaType: 'image/png', data: 'AAAA' })
+  const messages = s.requests[0].messages as { content: unknown }[]
+  assert.match(String(messages[0].content), /白鲸/)
+  assert.deepEqual(messages.at(-1)?.content, [
+    { type: 'text', text: '看图' },
+    { type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } },
+  ])
+  assert.equal(turn.prompt, '看图')
+  assert.doesNotMatch(JSON.stringify(assistant.state()), /base64/)
+})
+
 test('旧对话表平滑迁移，待确认记录和历史不丢失，迁移重复执行安全', () => {
   const database = new Database(':memory:')
   try {

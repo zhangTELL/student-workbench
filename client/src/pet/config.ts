@@ -1,5 +1,7 @@
 import type { FontConfig, ModelSelection, Pet, PhysicsParams } from '../../../vendor/dsh-pet/src/shared/types'
 
+export const PET_SETTINGS_SAVED = 'workbench-pet-settings-saved'
+
 export interface PetSettingsConfig {
   pets: Pet[]
   notificationsEnabled: boolean

@@ -45,7 +45,7 @@ import {
 // 悬浮提示：与桌面共用同一份样式与摆位判据（替代原先挂在命中层上的原生 title 提示）
 import { TOOLTIP_CLASS, TOOLTIP_CSS, TOOLTIP_GAP_RATIO, tooltipPlacement } from '../shared/tooltip';
 // 对话弹窗：与桌面共用同一份组件（数据经 host /chat 读写同一份记忆）
-import { mountChatDialog } from '../shared/chat';
+import { isChatHotkey, mountChatDialog, type ChatDialogMount } from '../shared/chat';
 // 字体（全局配置 font）：种类 → CSS 字体栈、字号 → 最终 px。换算只在 shared 一处，
 // 与桌面端共用同一份（fontStackOf / resolveFontPx），避免两端各算一套后漂移。
 import { fontStackOf, resolveFontPx } from '../shared/fonts';
@@ -225,7 +225,17 @@ export function makePetUI(rt: {
     // 右键菜单（统一自绘组件）：当前挂载的 close() 句柄，卸载/重开前清理
     const menuRef = useRef<{ close: () => void } | null>(null);
     // 对话弹窗（与桌面共用 shared 组件）：当前挂载的 close() 句柄，卸载/重开前清理
-    const chatRef = useRef<{ close: () => void } | null>(null);
+    const chatRef = useRef<ChatDialogMount | null>(null);
+    const openChatRef = useRef<() => void>(() => {});
+    useEffect(() => {
+      const onKeyDown = (event: KeyboardEvent) => {
+        if (!stageRef.current?.querySelector('.dsh-pet-hit:hover') || !isChatHotkey(event)) return;
+        event.preventDefault();
+        openChatRef.current();
+      };
+      document.addEventListener('keydown', onKeyDown);
+      return () => document.removeEventListener('keydown', onKeyDown);
+    }, []);
 
     // 配置变化即时跟随（容器重新合并 / 设置页保存后通过 petBridge.reload 触发）
     useEffect(() => {
@@ -1433,14 +1443,13 @@ export function makePetUI(rt: {
         // 记忆经 host /chat 读写（memory.json，浏览器/桌面同一实例共享同一份记忆）。
         // 弹窗跟随宠物：基准是**身体命中区**（.dsh-pet-hit，与气泡同一定位源——
         // 桌宠在视频中间，视频框右上角 ≠ 宠物右上角），取身体右上角，超出视口自动夹回。
-        if (chatRef.current) chatRef.current.close();
+        if (chatRef.current) { chatRef.current.focus(); return; }
         const hitRect = stageRef.current?.querySelector('.dsh-pet-hit')?.getBoundingClientRect();
         chatRef.current = mountChatDialog({
           petId: cfg.id,
           baseUrl: '/dsh-pet-7340/chat',
-          x: hitRect ? hitRect.left + hitRect.width / 2 - 80 : window.innerWidth - 256,
-          y: hitRect ? hitRect.top - 48 : 8,
-          above: true,
+          x: hitRect ? hitRect.right + 6 : window.innerWidth - 256,
+          y: hitRect ? hitRect.top + 6 : 8,
           onSent: () => {
             // 发送成功：回复已写进 S，叫醒一拍 /state 让气泡 0 延迟出现（不必等下一个 1s）
             console.info('[dsh-pet] 对话已发送 pet=' + cfg.id);
@@ -1499,6 +1508,7 @@ export function makePetUI(rt: {
       setOnce(true);
       setAnim(leaf.anim);
     };
+    openChatRef.current = () => handleMenuAction({ label: '对话', action: 'chat' });
     const handleContextMenu = (e: ReactNS.MouseEvent<HTMLDivElement>) => {
       // 工具项（查看余额 / 碎碎念 / 对话 / 回到初始位置，与桌面端同一套）+ 动作树（动作→分类→具体动画）。
       // 「查看余额」**无条件显示**（与桌面端一致）：即使该宠物关了 balanceEnabled 也能点——手动请求不受开关限制
@@ -1589,18 +1599,6 @@ export function makePetUI(rt: {
         height: ((HIT_BOX.y1 - HIT_BOX.y0) / 360) * 100 + '%',
       },
       onClick: handleClick,
-      onDoubleClick: async () => {
-        try {
-          const response = await fetch('/dsh-pet-7340/assistant-config');
-          if (!response.ok) throw new Error('无法读取助手设置');
-          const config = await response.json();
-          if (config.petDoubleClick === 'sidebar') {
-            document.dispatchEvent(new CustomEvent('workbench-assistant-open'));
-            return;
-          }
-        } catch (error) { console.warn('[dsh-pet] 读取双击设置失败，使用独立对话框', error); }
-        handleMenuAction({ label: '对话', action: 'chat' });
-      },
       onPointerDown: handlePointerDown,
       onPointerMove: handlePointerMove,
       onPointerUp: handlePointerUp,
@@ -1610,6 +1608,17 @@ export function makePetUI(rt: {
         setTipOn(true);
       },
       onPointerLeave: () => setTipOn(false),
+      onDragOver: (event: ReactNS.DragEvent<HTMLDivElement>) => {
+        if (event.dataTransfer.types.includes('Files')) event.preventDefault();
+      },
+      onDrop: (event: ReactNS.DragEvent<HTMLDivElement>) => {
+        const image = [...event.dataTransfer.files].find(file => file.type.startsWith('image/'));
+        if (!image) return;
+        event.preventDefault();
+        event.stopPropagation();
+        openChatRef.current();
+        chatRef.current?.setImageFile(image);
+      },
       onContextMenu: handleContextMenu,
       // 原先这里挂 title（原生系统提示）：已换成自绘浮层，但无障碍名称不能跟着丢
       'aria-label': cfg.name,

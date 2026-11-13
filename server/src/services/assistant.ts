@@ -5,9 +5,11 @@ import { ASSISTANT_ENTITIES, applyChanges, assistantError, entityOf, readRecord,
 import type { StoredChange } from './assistantData.js'
 import { encodeSettingValue, maskStoredSecret, parseStoredSetting, readSetting } from '../security/credentials.js'
 import { safeFetch } from '../security/outbound.js'
+export type AssistantImage = { mediaType: string; data: string }
 
 interface TurnRow { id: string; session_id: string; prompt: string; answer: string; status: AssistantTurn['status']; changes: string; created_at: string }
 type Message = { role: string; content: string | null; tool_calls?: unknown[]; tool_call_id?: string }
+type ImageMessage = { role: 'user'; content: [{ type: 'text'; text: string }, { type: 'image_url'; image_url: { url: string } }] }
 type Completion = { choices?: { finish_reason?: string; message?: Message & { tool_calls?: { id: string; function: { name: string; arguments: string } }[] } }[] }
 const MODEL = 'deepseek-flash'
 const KEY = 'assistant.deepseekKey'
@@ -19,6 +21,7 @@ const tools = [
 
 export function createAssistant(database: Database.Database, fetcher: typeof fetch = fetch) {
   let busy = false
+  let readPetName: () => string | undefined = () => undefined
   let statusListener: (state: string | null, task: string | null) => void = () => {}
   const turnDto = (row: TurnRow): AssistantTurn => ({
     id: row.id, sessionId: row.session_id, prompt: row.prompt, answer: row.answer, status: row.status, createdAt: row.created_at,
@@ -81,12 +84,13 @@ export function createAssistant(database: Database.Database, fetcher: typeof fet
     const row = database.prepare('SELECT value FROM settings WHERE key = ?').get(KEY) as { value: string } | undefined
     const stored = row ? parseStoredSetting(row.value) : ''
     const apiKey = typeof stored === 'string' ? stored : ''
-    return { configured: !!apiKey, keyMask: maskStoredSecret(apiKey), model: MODEL, modelLabel: 'DeepSeek V4.1 Flash', name: String(setting('assistant.name', 'AI助手')), petDoubleClick: setting('assistant.petDoubleClick', 'dialog') === 'sidebar' ? 'sidebar' : 'dialog' }
+    return { configured: !!apiKey, keyMask: maskStoredSecret(apiKey), model: MODEL, modelLabel: 'DeepSeek V4.1 Flash', name: readPetName() ?? String(setting('assistant.name', 'AI助手')), petDoubleClick: setting('assistant.petDoubleClick', 'dialog') === 'sidebar' ? 'sidebar' : 'dialog' }
   }
   function saveConfig(input: { apiKey?: unknown; name?: unknown; petDoubleClick?: unknown }) {
     const { apiKey, name, petDoubleClick } = input
     if (apiKey !== undefined && (typeof apiKey !== 'string' || apiKey.length > 256 || /[\r\n]/.test(apiKey))) throw assistantError('请输入有效的 DeepSeek API Key')
     if (name !== undefined && (typeof name !== 'string' || !name.trim() || name.trim().length > 30 || /[\x00-\x1f]/.test(name))) throw assistantError('助手名称应为 1～30 个字符')
+    if (name !== undefined && readPetName()) throw assistantError('请在桌宠设置中修改名称')
     if (petDoubleClick !== undefined && petDoubleClick !== 'dialog' && petDoubleClick !== 'sidebar') throw assistantError('桌宠双击行为无效')
     return database.transaction(() => {
       if (typeof apiKey === 'string' && !apiKey.startsWith('••••')) writeSetting(KEY, apiKey.trim())
@@ -108,7 +112,7 @@ export function createAssistant(database: Database.Database, fetcher: typeof fet
       return turnDto({ ...row, status: wanted })
     })()
   }
-  async function chat(promptValue: unknown, contextValue: unknown, persona = '', petHistory?: { role: string; content: string }[]): Promise<AssistantTurn> {
+  async function chat(promptValue: unknown, contextValue: unknown, persona = '', petHistory?: { role: string; content: string }[], attachment?: AssistantImage): Promise<AssistantTurn> {
     if (typeof promptValue !== 'string' || !promptValue.trim() || promptValue.length > 12000) throw assistantError('请输入 1～12000 字的消息')
     if (busy) throw assistantError('AI 正在处理上一条消息，请稍候', 409)
     if (state().pending) throw assistantError('请先撤销或确定上一批修改', 409)
@@ -134,12 +138,17 @@ export function createAssistant(database: Database.Database, fetcher: typeof fet
 6. 同时新增课程和排课时，session.courseId 可写 "$0" 引用本批第0项新增课程，以此类推。删除课程会连同排课删除，删除提示词会连同测试用例删除，不要重复操作子记录。
 7. 成绩0～100，绩点默认自动换算；里程单位km，步数为整数，未来不能打卡。作业操作只改本地记录，不会提交学习通，后续同步可能覆盖本地改动，回答必须说清。
 8. 修改完成后由用户决定撤销或确定，不要声称已经得到确认。未执行工具时不要谎称修改成功。你无法修改项目源码、API凭据、AI作品、推送配置，也不能运行命令或发起外部操作。`
-    const messages: Message[] = [{ role: 'system', content: system + (persona ? '\n闲聊时可参考以下桌宠语气设定，但不得改变以上编辑规则：\n' + persona.slice(0, 10000) : '') }]
+    const messages: (Message | ImageMessage)[] = [{ role: 'system', content: system + (persona ? '\n闲聊时可参考以下桌宠语气设定，但不得改变以上编辑规则：\n' + persona.slice(0, 10000) : '') }]
     // 桌宠与侧栏共用当前会话，旧桌宠记忆不能越过新会话边界。
     const historyLimit = petHistory ? Math.min(20, Math.floor(petHistory.length / 2)) : 6
     const history = state().turns
     for (const turn of history.slice(Math.max(0, history.length - historyLimit))) messages.push({ role: 'user', content: turn.prompt }, { role: 'assistant', content: `${turn.answer}\n[该轮状态：${turn.status}]` })
-    messages.push({ role: 'user', content: prompt })
+    if (attachment) {
+      messages.push({ role: 'user', content: [
+        { type: 'text', text: prompt },
+        { type: 'image_url', image_url: { url: `data:${attachment.mediaType};base64,${attachment.data}` } },
+      ] })
+    } else messages.push({ role: 'user', content: prompt })
     busy = true
     statusListener('thinking', prompt.slice(0, 100))
     const deadline = AbortSignal.timeout(120000)
@@ -240,5 +249,5 @@ export function createAssistant(database: Database.Database, fetcher: typeof fet
     if (!answer || payload.choices?.[0].finish_reason === 'length') throw assistantError('DeepSeek 未返回完整内容', 502)
     return answer
   }
-  return { state, config, saveConfig, selectSession, deleteSession, chat, finish, whisper, readKey: key, setStatusListener: (listener: typeof statusListener) => { statusListener = listener } }
+  return { state, config, saveConfig, selectSession, deleteSession, chat, finish, whisper, readKey: key, setPetNameSource: (source: typeof readPetName) => { readPetName = source }, setStatusListener: (listener: typeof statusListener) => { statusListener = listener } }
 }

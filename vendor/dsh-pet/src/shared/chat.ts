@@ -4,27 +4,36 @@
 //  - CHAT_CSS + mountChatDialog：自 menu.ts 之后第二个「两端共用同一份 DOM」例外
 //    （菜单组件证明可行的模式：浏览器页面与桌面透明窗渲染完全一致的对话框）。
 // 交互语义（与碎碎念同一显示效果，只多一步用户输入）：
-//    右键菜单「对话」→ 极简输入框 + 确认 → 点确认后弹窗消失 →
+//    右键菜单「对话」→ 输入框与图片工具 → 回车发送成功后弹窗消失 →
 //    桌宠把回复用碎碎念同款方式展示（说话动画 + 白色气泡 10s 消失）。
 //  **回复不再由本组件带回**：POST /chat 是动作端点，只回 {ok}，回复写进 S 的
 //    pets.<id>.say，由调用方（容器/桌面外壳）的 /state 轮询展示——onSent 只用来
 //    叫醒一拍，让结果 0 延迟可见（见各端实现）。
 // 记忆语义：memory.json 全存不删；host 每次请求只截尾部 chatMemoryRounds 轮进上下文。
 
-/** POST /dsh-pet-7340/chat?pet=<id> {text}：只回是否受理（回复走 /state 的 pets.<id>.say） */
+import { captureChatImage, CHAT_IMAGE_TYPES, encodeChatImage, type ChatImage } from './chat-image';
+
+/** POST /dsh-pet-7340/chat?pet=<id>：回复走 /state 的 pets.<id>.say。 */
 export type ChatSendState =
   | { ok: true; review?: { id: string; answer: string } }
   | { ok: false; reason: 'provider-missing' | 'generate-error' | 'config-error' | 'bad-request'; message?: string };
+
+export function isChatHotkey(event: KeyboardEvent): boolean {
+  const target = event.target;
+  return !event.defaultPrevented && !event.repeat && !event.isComposing && event.keyCode !== 229 &&
+    !event.ctrlKey && !event.altKey && !event.metaKey && event.key.toLowerCase() === 'l' &&
+    !(target instanceof Element && target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])'));
+}
 
 const SEND_TIMEOUT_MS = 125_000; // 工作台的多步读取和修改最多等待两分钟
 
 /** 发送一句对话（携带记忆去 host 生成回复并写入记忆）。
  *  网络/解析失败显式抛错（调用方决定报错方式，绝不静默伪造）。 */
-export async function sendChat(baseUrl: string, text: string): Promise<ChatSendState> {
+export async function sendChat(baseUrl: string, text: string, attachment?: ChatImage): Promise<ChatSendState> {
   const res = await fetch(baseUrl, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({ text, attachment }),
     signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
   });
   const raw: unknown = await res.json().catch(() => null);
@@ -45,7 +54,7 @@ export async function sendChat(baseUrl: string, text: string): Promise<ChatSendS
 }
 
 /** 弹窗样式 —— 两端注入同一份（与菜单 MENU_CSS 同理；视觉对齐浏览器/桌面）。
- *  最简形态：一条自适应输入框（无标题/无按钮）——初始小宽度（160px），
+ *  输入框初始宽度为 160px，
  *  随输入自动增宽（封顶 340px），到上限后自动折行增高；回车发送，Esc 或点外关闭。
  *  宽度由 JS 按文本测量覆盖根元素宽度。 */
 export const CHAT_CSS = [
@@ -64,6 +73,12 @@ export const CHAT_CSS = [
   'resize:none;overflow:hidden;white-space:pre-wrap;overflow-wrap:anywhere}',
   '.dsh-pet-chat-input::placeholder{color:rgba(43,43,43,.45)}',
   '.dsh-pet-chat-input:disabled{opacity:.55}',
+  '.dsh-pet-chat-actions{display:flex;align-items:center;gap:5px;padding:0 8px 7px}',
+  '.dsh-pet-chat-tool{display:inline-grid;place-items:center;width:24px;height:24px;border:0;border-radius:5px;background:transparent;color:inherit;cursor:pointer}',
+  '.dsh-pet-chat-tool:hover,.dsh-pet-chat-tool:focus-visible{background:rgba(0,0,0,.07)}',
+  '.dsh-pet-chat-tool:disabled{opacity:.45;cursor:default}',
+  '.dsh-pet-chat [hidden]{display:none}',
+  '.dsh-pet-chat-thumb{width:24px;height:24px;object-fit:cover;border-radius:4px}',
   '.dsh-pet-chat-err{color:#d94f3d;font-size:12px;padding:0 12px 8px;white-space:pre-wrap;overflow-wrap:anywhere}',
 ].join('');
 
@@ -89,10 +104,12 @@ export interface ChatDialogMount {
   el: HTMLElement;
   /** 关闭并清理（幂等） */
   close: () => void;
+  focus: () => void;
+  setImageFile: (file: File) => void;
 }
 
 /** 挂载一个对话输入弹窗（两端共用；位置为视口坐标，超出 clamp 矩形自动夹回）。
- *  最简形态：只有一条输入框（无标题/无按钮），回车即发送 → 弹窗关闭 →
+ *  自适应输入框与图片工具，回车发送成功后关闭弹窗。
  *  onSent() 交给调用方叫醒一拍 /state（回复写进了 pets.<id>.say，气泡随下一拍出现）；
  *  Esc / 点弹窗外关闭；生成失败则留在弹窗内显式提示，不伪造回复。
  *
@@ -105,12 +122,11 @@ export function mountChatDialog(opts: {
   baseUrl?: string;
   x: number;
   y: number;
-  /** 输入框向上展开，避免内容增高时挡住宠物。 */
-  above?: boolean;
   /** 发送成功后调用（弹窗此时已关闭）：调用方叫醒一拍 /state 让回复 0 延迟出现。
    *  回复本身不从这里回传——它走 S（动作端点不回数据，数据只有一个出口）。 */
   onSent?: () => void;
   onClose?: () => void;
+  capture?: () => Promise<Blob>;
   /** 弹窗允许占用的矩形（视口局部坐标）；缺省 = 整个视口 */
   clamp?: { x: number; y: number; w: number; h: number };
 }): ChatDialogMount {
@@ -128,7 +144,8 @@ export function mountChatDialog(opts: {
 
   const input = document.createElement('textarea');
   input.className = 'dsh-pet-chat-input';
-  input.placeholder = '和 AI 聊聊，或修改工作台…';
+  input.placeholder = '说点什么…';
+  input.setAttribute('aria-label', '桌宠对话');
   input.maxLength = 2000;
   input.rows = 1;
 
@@ -158,25 +175,98 @@ export function mountChatDialog(opts: {
   reviewBox.style.cssText = 'display:none;padding:12px;font-family:system-ui,sans-serif;line-height:1.6;font-size:12px';
   reviewBox.setAttribute('aria-label', 'AI 修改确认');
 
+  const toolbar = document.createElement('div');
+  toolbar.className = 'dsh-pet-chat-actions';
+  const fileInput = document.createElement('input');
+  fileInput.type = 'file';
+  fileInput.accept = CHAT_IMAGE_TYPES.join(',');
+  fileInput.hidden = true;
+  const thumb = document.createElement('img');
+  thumb.className = 'dsh-pet-chat-thumb';
+  thumb.alt = '待发送的图片';
+  thumb.hidden = true;
+  const tool = (label: string, path: string, action: () => void) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'dsh-pet-chat-tool';
+    button.title = label;
+    button.setAttribute('aria-label', label);
+    button.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${path}"/></svg>`;
+    button.addEventListener('click', action);
+    return button;
+  };
+  const attach = tool('添加图片', 'M4 5h16v14H4z M4 16l5-5 4 4 3-3 4 4 M15 9h.1', () => fileInput.click());
+  const capture = opts.capture ?? (navigator.mediaDevices?.getDisplayMedia ? captureChatImage : undefined);
+  const screenshot = capture && tool('截图', 'M8 4H4v4m12-4h4v4M4 16v4h4m12-4v4h-4M8 12h8m-4-4v8', () => void setImage(capture));
+  const remove = tool('移除图片', 'm6 6 12 12M18 6 6 18', () => {
+    if (sending || encoding) return;
+    attachment = undefined;
+    thumb.removeAttribute('src');
+    thumb.hidden = remove.hidden = true;
+    input.focus();
+  });
+  remove.hidden = true;
+  toolbar.append(attach);
+  if (screenshot) toolbar.append(screenshot);
+  toolbar.append(thumb, remove, fileInput);
+
   root.appendChild(input);
+  root.appendChild(toolbar);
   root.appendChild(err);
   root.appendChild(reviewBox);
   document.body.appendChild(root);
 
   // 位置：以 (x,y) 落点，超出 clamp 矩形夹回
   function place(): void {
-    const rr = root.getBoundingClientRect();
     root.style.maxWidth = Math.max(80, c.w - 8) + 'px';
     root.style.maxHeight = Math.max(40, c.h - 8) + 'px';
     root.style.overflowY = 'auto';
+    const rr = root.getBoundingClientRect();
     root.style.left = Math.max(c.x + 4, Math.min(x, c.x + c.w - rr.width - 4)) + 'px';
-    const top = opts.above ? y + 38 - rr.height : y;
-    root.style.top = Math.max(c.y + 4, Math.min(top, c.y + c.h - rr.height - 4)) + 'px';
+    root.style.top = Math.max(c.y + 4, Math.min(y, c.y + c.h - rr.height - 4)) + 'px';
   }
   resizeInput(); // append 后再量一次（此时样式已生效）
 
   let closed = false;
   let sending = false;
+  let encoding = false;
+  let attachment: ChatImage | undefined;
+
+  async function setImage(source: () => Blob | Promise<Blob>) {
+    if (closed || sending || encoding) return;
+    encoding = true;
+    err.style.display = 'none';
+    try {
+      const encoded = await encodeChatImage(await source());
+      if (closed) return;
+      attachment = encoded;
+      thumb.src = `data:${encoded.mediaType};base64,${encoded.data}`;
+      thumb.hidden = remove.hidden = false;
+    } catch (error) {
+      if (error instanceof DOMException && ['NotAllowedError', 'AbortError'].includes(error.name)) return;
+      err.textContent = error instanceof Error ? error.message : '图片读取失败';
+      err.style.display = 'block';
+    } finally {
+      encoding = false;
+      if (!closed) { place(); input.focus(); }
+    }
+  }
+  fileInput.addEventListener('change', () => {
+    const file = fileInput.files?.[0];
+    fileInput.value = '';
+    if (file) void setImage(() => file);
+  });
+  input.addEventListener('paste', event => {
+    const file = [...(event.clipboardData?.files ?? [])].find(file => file.type.startsWith('image/'));
+    if (file) { event.preventDefault(); void setImage(() => file); }
+  });
+  root.addEventListener('dragover', event => {
+    if (event.dataTransfer?.types.includes('Files')) event.preventDefault();
+  });
+  root.addEventListener('drop', event => {
+    const file = event.dataTransfer?.files[0];
+    if (file) { event.preventDefault(); void setImage(() => file); }
+  });
 
   const close = (): void => {
     if (closed) return;
@@ -199,16 +289,19 @@ export function mountChatDialog(opts: {
   document.addEventListener('keydown', onDocKeyDown, true);
 
   const doSend = (): void => {
-    if (closed || sending) return;
+    if (closed || sending || encoding) return;
     const text = input.value.trim();
     if (!text) return;
     sending = true;
+    err.style.display = 'none';
     input.disabled = true;
-    sendChat(withPet, text)
+    for (const button of toolbar.querySelectorAll('button')) button.disabled = true;
+    sendChat(withPet, text, attachment)
       .then((state) => {
         if (state.ok) {
-          if (state.review) {
+          if (state.review && !closed) {
             input.style.display = 'none';
+            toolbar.style.display = 'none';
             reviewBox.style.display = 'block';
             root.style.width = Math.min(320, c.w - 12) + 'px';
             const text = document.createElement('p');
@@ -242,9 +335,10 @@ export function mountChatDialog(opts: {
             }
             reviewBox.appendChild(actions);
             place();
-            document.dispatchEvent(new CustomEvent('workbench-assistant-change'));
+            actions.querySelector('button')?.focus();
           } else close();
           if (onSent) onSent();
+          document.dispatchEvent(new CustomEvent('workbench-assistant-change'));
         } else {
           err.textContent = '对话失败：' + (state.message ?? state.reason);
           err.style.display = 'block';
@@ -259,16 +353,23 @@ export function mountChatDialog(opts: {
       .finally(() => {
         sending = false;
         input.disabled = false;
-        if (!closed) input.focus();
+        for (const button of toolbar.querySelectorAll('button')) button.disabled = false;
+        if (!closed && input.style.display !== 'none') input.focus();
       });
   };
+  let composing = false;
+  let compositionEndedAt = -Infinity;
+  input.addEventListener('compositionstart', () => { composing = true; });
+  input.addEventListener('compositionend', () => { composing = false; compositionEndedAt = performance.now(); });
   input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.isComposing && !e.shiftKey) {
-      e.preventDefault();
-      doSend();
-    }
+    if (e.key !== 'Enter' || e.shiftKey || composing || e.isComposing || e.keyCode === 229) return;
+    e.preventDefault();
+    if (!e.repeat && performance.now() - compositionEndedAt >= 80) doSend();
   });
 
   input.focus();
-  return { el: root, close };
+  return { el: root, close, setImageFile: file => void setImage(() => file), focus: () => {
+    if (input.style.display === 'none') reviewBox.querySelector('button')?.focus();
+    else input.focus();
+  } };
 }

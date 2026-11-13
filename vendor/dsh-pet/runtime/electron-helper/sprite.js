@@ -191,7 +191,21 @@ class PetSprite {
     this.hit.addEventListener('pointermove', (e) => this.onPointerMove(e), { signal: ac.signal });
     this.hit.addEventListener('click', () => this.onClick(), { signal: ac.signal });
     this.hit.addEventListener('contextmenu', (e) => this.onContextMenu(e), { signal: ac.signal });
-    this.hit.addEventListener('dblclick', () => this.onWorkbenchDoubleClick(), { signal: ac.signal });
+    this.hit.addEventListener('dragover', event => {
+      if (event.dataTransfer?.types.includes('Files')) event.preventDefault();
+    }, { signal: ac.signal });
+    this.hit.addEventListener('drop', event => {
+      const image = [...(event.dataTransfer?.files ?? [])].find(file => file.type.startsWith('image/'));
+      if (!image) return;
+      event.preventDefault();
+      this.showChatFromMenu();
+      this.chatSetImage?.(image);
+    }, { signal: ac.signal });
+    window.addEventListener('keydown', (event) => {
+      if (!this.hit.matches(':hover') || !S.isChatHotkey(event)) return;
+      event.preventDefault();
+      this.showChatFromMenu();
+    }, { signal: ac.signal });
     window.addEventListener('workbench-quick-chat', () => this.showChatFromMenu(), { signal: ac.signal });
     window.addEventListener('pointerup', (e) => this.onPointerUp(e), { signal: ac.signal });
     window.addEventListener('pointercancel', (e) => this.onPointerUp(e), { signal: ac.signal });
@@ -1330,32 +1344,18 @@ class PetSprite {
   // 弹窗跟随宠物：基准是**身体命中区** this.hit（与气泡同一定位源——桌宠在视频中间，
   // 视频框右上角 ≠ 宠物右上角），取身体右上角，超出视口自动夹回（窗口右侧外扩区容纳）；
   // 弹窗是窗口内 DOM，期间整窗保持可交互（可点输入框），关闭后恢复命中区穿透。
-  async onWorkbenchDoubleClick() {
-    try {
-      const response = await fetch(BASE + '/assistant-config');
-      if (!response.ok) throw new Error('无法读取助手设置');
-      const config = await response.json();
-      document.title = (config.name || 'AI助手') + ' 桌宠';
-      if (config.petDoubleClick === 'sidebar') {
-        window.petBridge?.openAssistant();
-        return;
-      }
-    } catch (error) { console.warn('[dsh-pet] 读取双击设置失败，使用独立对话框', error); }
-    this.showChatFromMenu();
-  }
-
   showChatFromMenu() {
     if (this.chatClose) {
-      this.chatClose();
-      this.chatClose = null;
-      return; // 已开着：先关旧的
+      this.chatFocus?.();
+      return;
     }
+    const hitRect = this.hit.getBoundingClientRect();
     const m = S.mountChatDialog({
       petId: this.pet.id,
       baseUrl: BASE + '/chat',
-      x: this.hit.getBoundingClientRect().left + this.hit.getBoundingClientRect().width / 2 - 80,
-      y: this.hit.getBoundingClientRect().top - 48,
-      above: true,
+      x: hitRect.right + 6,
+      y: hitRect.top + 6,
+      capture: window.petBridge?.captureScreen && (async () => new Blob([await window.petBridge.captureScreen()], { type: 'image/jpeg' })),
       // 弹窗同菜单：只允许在「窗口 ∩ 工作区」内显示，贴边时不被屏幕裁掉（#41）
       clamp: this.visibleClampRect(),
       onSent: () => {
@@ -1365,6 +1365,8 @@ class PetSprite {
       },
       onClose: () => {
         this.chatClose = null;
+        this.chatFocus = null;
+        this.chatSetImage = null;
         this.chatOpen = false;
         window.__dshPetDebug.chatOpen = false;
         this.syncInputBusy(); // 弹窗关：交还常规判定（菜单还开着的话仍保持忙，见 inputBusy）
@@ -1372,6 +1374,8 @@ class PetSprite {
       },
     });
     this.chatClose = m.close;
+    this.chatFocus = m.focus;
+    this.chatSetImage = m.setImageFile;
     this.chatOpen = true; // 穿透守卫：弹窗期间整窗保持可交互，光标移到输入框不被翻回穿透
     window.__dshPetDebug.chatOpen = true;
     this.syncInputBusy();
