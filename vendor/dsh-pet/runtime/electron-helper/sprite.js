@@ -112,7 +112,8 @@ class PetSprite {
     this.whisperOn = false;
     this.whisperTimer = null;
     this.whisperView = null;
-    this.whisperText = '';
+    this.whisperMarkdown = null;
+    this.renderedReply = null;
     // 配图名称（配置 memes 的键；whisperImageEnabled 开启时由 host 随机抽定，随文本一起来）
     this.whisperImage = '';
     // 工作状态联动（DSH 会话状态）：容器 1s 轮询 /state 递增 workTick → 本宠物按档位播动画+气泡。
@@ -164,6 +165,7 @@ class PetSprite {
     this.hit.setAttribute('aria-label', this.pet.name);
     this.bubble = document.createElement('div');
     this.bubble.className = 'pet-bubble';
+    S.injectReplyMarkdownCss();
     // 悬浮提示：与气泡同处 this.el 内的绝对定位浮层，位置/翻转由 renderTip 决定，
     // 样式走 shared 的 TOOLTIP_CSS（renderer.js 注入，与浏览器端同一份）
     this.tip = document.createElement('div');
@@ -182,6 +184,12 @@ class PetSprite {
     // 事件（与浏览器同一套：pointerdown/move、click、window pointerup/cancel）
     const ac = new AbortController();
     this.ac = ac;
+    this.bubble.addEventListener('click', (event) => {
+      const link = event.target.closest('.reply-markdown a[href]');
+      if (!link) return;
+      event.preventDefault();
+      window.petBridge?.openReplyLink(link.href);
+    }, { signal: ac.signal });
     // 级联菜单新增面板、聊天输入增长都可能在鼠标停住时发生，不能只等下一次 mousemove。
     this.inputRegionResize = new ResizeObserver(() => this.syncInputRegions());
     this.inputRegionElements = new Set();
@@ -319,6 +327,7 @@ class PetSprite {
         toScreen(this.margin.t),
       );
     }
+    this.fitReplyBubble();
     // 位置变了（宠物漫游/拖拽/飞行，窗口跟着动）：提示若正显示必须重摆一次——它跟的是光标，
     // 而光标存的是视口坐标，窗口一移，光标相对窗口的位置就变了，不重摆提示会跟着窗口漂走。
     // 只在显示时重摆：漫游逐帧调本函数，没显示提示时不做无谓的 DOM 写入。
@@ -1013,7 +1022,7 @@ class PetSprite {
    * 位移分不清"拖拽跟手"和"漫游/抛掷"）。同时上报控件矩形：菜单/聊天框外的透明区域继续穿透。
    */
   inputBusy() {
-    return this.dragState.active || this.menuOpen || this.chatOpen;
+    return this.dragState.active || this.menuOpen || this.chatOpen || this.bubble.matches('.pet-reply-bubble.is-on');
   }
 
   /**
@@ -1033,7 +1042,7 @@ class PetSprite {
   syncInputRegions() {
     if (!window.petBridge || !window.petBridge.setInputRegions) return;
     const rects = [];
-    const controls = [...document.querySelectorAll('.dsh-pet-menu-column, .dsh-pet-chat')];
+    const controls = [...document.querySelectorAll('.dsh-pet-menu-column, .dsh-pet-chat, .pet-reply-bubble.is-on')];
     for (const el of this.inputRegionElements) {
       if (!controls.includes(el)) {
         this.inputRegionResize.unobserve(el);
@@ -1145,10 +1154,12 @@ class PetSprite {
     const px = wx - this.margin.l;
     const py = wy - this.margin.t;
     const inBody = px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h;
+    const reply = this.renderedReply && this.bubble.getBoundingClientRect();
+    const inReply = reply && wx >= reply.left && wx < reply.right && wy >= reply.top && wy < reply.bottom;
     // 光标位置存**视口坐标**（窗口原点 + 窗口内坐标）：窗口随宠物移动时贴光标不会漂，见 renderTip。
     // 必须在 setTip 之前更新：setTip 变显隐时会立刻渲染一次，晚一步就会用上一次的光标摆位。
     if (inBody) this.tipCursor = { x: this.pos.x - this.margin.l + wx, y: this.pos.y - this.margin.t + wy };
-    this.setInteractive(inBody);
+    this.setInteractive(inBody || inReply);
     // 悬浮提示与可交互判定同源（同一个 inBody）：光标进身体 → 提示出现，离开 → 收起
     this.setTip(inBody);
     // 跟随光标：位置依赖光标，所以每次移动都得重摆一次（setTip 只在显隐变化时才渲染）
@@ -1434,7 +1445,15 @@ class PetSprite {
       speech: !!(this.whisperOn && this.whisperView),
       balance: !!(this.bubbleOn && this.balanceView),
     });
+    const reply = slot === 'whisper' && this.whisperMarkdown !== null;
+    // 余额或工作状态刷新时，同一份可见回复保留当前滚动位置。
+    if (reply && this.renderedReply === this.whisperView) return;
+    this.renderedReply = reply ? this.whisperView : null;
     const whisperImg = slot === 'whisper' ? S.createMemeImage(this.whisperImage, BASE, this.assetRoot) : null;
+    if (!this.bubble.classList.toggle('pet-reply-bubble', reply)) {
+      this.bubble.removeAttribute('style');
+      this.bubble.classList.remove('is-below');
+    }
     this.bubble.classList.toggle(
       'is-whisper',
       // 余额「文字说明」（不可用状态）同样套用紧凑变体：字号更小、宽度下限更窄，多行说明更紧凑
@@ -1445,6 +1464,7 @@ class PetSprite {
       // 三者都没有可显示的内容：隐藏（不占位，也就不会挡住任何一层）
       this.bubble.classList.remove('is-on');
       window.__dshPetDebug.lastBubbleTitle = '';
+      this.syncInputBusy();
       return;
     }
     this.bubble.innerHTML = '';
@@ -1453,6 +1473,18 @@ class PetSprite {
       line.className = 'pet-bub-row';
       line.textContent = this.workText;
       this.bubble.appendChild(line);
+    } else if (reply) {
+      const scroll = document.createElement('div');
+      scroll.className = 'pet-reply-scroll';
+      scroll.tabIndex = 0;
+      scroll.setAttribute('aria-label', '桌宠回复');
+      const article = document.createElement('div');
+      article.className = 'reply-markdown';
+      article.innerHTML = this.whisperMarkdown;
+      if (whisperImg) scroll.appendChild(whisperImg);
+      scroll.appendChild(article);
+      this.bubble.appendChild(scroll);
+      this.fitReplyBubble();
     } else if (slot === 'whisper') {
       // 配图（shared 生成的 <img> + 共用样式）：先看图再读话，符合"配图"的阅读顺序
       if (whisperImg) this.bubble.appendChild(whisperImg);
@@ -1487,5 +1519,16 @@ class PetSprite {
     }
     this.bubble.classList.add('is-on');
     window.__dshPetDebug.lastBubbleTitle = this.bubble.textContent.slice(0, 60);
+    this.syncInputBusy();
+  }
+
+  fitReplyBubble() {
+    if (!this.bubble.classList.contains('pet-reply-bubble')) return;
+    const clamp = this.visibleClampRect();
+    const bounds = clamp
+      ? { x: clamp.x, y: clamp.y, width: clamp.w, height: clamp.h }
+      : { x: 0, y: 0, width: window.innerWidth, height: window.innerHeight };
+    S.fitPetReply(this.bubble, this.el.getBoundingClientRect(), bounds, this.size * S.BUBBLE_OVERLAP_RATIO);
+    this.syncInputRegions();
   }
 }

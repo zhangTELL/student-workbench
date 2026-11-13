@@ -552,7 +552,7 @@ export function apply(ctx: any): void {
       state.writePet(
         petId,
         'say',
-        generated.image ? { text: generated.text, image: generated.image } : { text: generated.text },
+        { text: generated.text, image: generated.image, markdown: true },
       );
       return { ok: true as const };
     });

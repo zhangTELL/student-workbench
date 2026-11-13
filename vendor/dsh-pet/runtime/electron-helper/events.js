@@ -129,7 +129,7 @@ PetSprite.prototype.showBalanceNotice = function showBalanceNotice(state, manual
 
 // 碎碎念展示（本宠物）：随机抽 events.whisper 动画 + 弹文本气泡（10s 消失，与余额同一语义）
 // image：host 随机抽定的配图名称（未开配图/池为空则空串，与浏览器端同一契约）
-PetSprite.prototype.showWhisper = function showWhisper(text, image) {
+PetSprite.prototype.showWhisper = function showWhisper({ text, image, markdown }) {
   const pool = this.animations.events?.whisper;
   if (!pool || pool.length === 0) {
     console.error('[dsh-pet] 配置缺少 animations.events.whisper，无法播放碎碎念动画');
@@ -152,14 +152,15 @@ PetSprite.prototype.showWhisper = function showWhisper(text, image) {
   this.stopMove();
   this.whisperOn = true;
   this.whisperView = S.whisperBubbleView({ ok: true, text, ts: 0 });
+  this.whisperMarkdown = markdown ? S.renderReplyMarkdown(text) : null;
   this.whisperImage = typeof image === 'string' ? image : '';
   this.renderBubble();
-  // 气泡 10s 定时消失（与动画解耦，与余额同一语义；重复触发先清旧定时器）
+  // 对话比碎碎念停留更久，便于阅读列表、表格等内容。
   if (this.whisperTimer !== null) window.clearTimeout(this.whisperTimer);
   this.whisperTimer = window.setTimeout(() => {
     this.whisperOn = false;
     this.renderBubble();
-  }, BUBBLE_DURATION_MS);
+  }, markdown ? S.REPLY_BUBBLE_DURATION_MS : BUBBLE_DURATION_MS);
   this.playOnce(name);
 };
 
@@ -242,7 +243,7 @@ function applySayLeaf(petId, leaf) {
   const said = S.readSay(leaf);
   if (!said) return;
   for (const s of sprites) {
-    if (s.pet.id === petId) s.showWhisper(said.text, said.image);
+    if (s.pet.id === petId) s.showWhisper(said);
   }
 }
 

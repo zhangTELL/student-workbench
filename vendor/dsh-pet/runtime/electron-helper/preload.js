@@ -52,6 +52,9 @@ contextBridge.exposeInMainWorld('petBridge', {
   captureScreen() {
     return ipcRenderer.invoke('pet:capture-screen');
   },
+  openReplyLink(url) {
+    ipcRenderer.send('pet:open-reply-link', url);
+  },
   // 右键菜单「打开网站」：主进程按宿主形态打开——桌面应用宿主唤起桌面窗口（dsh://open），否则系统默认浏览器打开 DSH 网站（等效网页 Ctrl+点击链接）
   openDshSite(url) {
     ipcRenderer.send('pet:open-site', { url });

@@ -23,6 +23,7 @@ import {
   postAction,
   readBalance,
   readSay,
+  type PetSpeech,
   readAnim,
   readWorkStatus,
   takeChanged,
@@ -30,6 +31,7 @@ import {
 import { WORK_STATUS_INDEX, type WorkStatusSnapshot } from '../shared/work-status';
 import { selectBubbleSlot } from '../shared/bubble-priority';
 import { makeBalanceBubble, makeWhisperBubble } from './bubble';
+import { fitPetReply, REPLY_BUBBLE_DURATION_MS } from '../shared/reply-markdown';
 import { clickScore, SCORE_MIN_SPEED, mountScorePopup, spawnScoreBurst } from '../shared/score-popup';
 import { CANVAS_H, FEET_Y, HIT_BOX, DRAG_THRESHOLD, PET_REF_WIDTH, ANIMATION_EXT } from '../shared/constants';
 // 统一右键菜单：与桌面共用同一份组件（树 + 渲染 + 样式，src/shared/menu.ts）
@@ -48,7 +50,7 @@ import { TOOLTIP_CLASS, TOOLTIP_CSS, TOOLTIP_GAP_RATIO, tooltipPlacement } from 
 import { isChatHotkey, mountChatDialog, type ChatDialogMount } from '../shared/chat';
 // 字体（全局配置 font）：种类 → CSS 字体栈、字号 → 最终 px。换算只在 shared 一处，
 // 与桌面端共用同一份（fontStackOf / resolveFontPx），避免两端各算一套后漂移。
-import { fontStackOf, resolveFontPx } from '../shared/fonts';
+import { BUBBLE_OVERLAP_RATIO, fontStackOf, resolveFontPx } from '../shared/fonts';
 import { petBridge } from './settings';
 import { notifyFromFrame } from './notify';
 
@@ -136,14 +138,15 @@ export function makePetUI(rt: {
   // 用 React 命名空间类型而非 typeof：type-only import 的 hook 无法进入声明导出（TS4078）
   useEffect: (effect: ReactNS.EffectCallback, deps?: ReactNS.DependencyList) => void;
   useRef: <T>(initial: T) => ReactNS.MutableRefObject<T>;
+  useMemo: typeof ReactNS.useMemo;
 }): () => ReactNode {
-  const { h, useState, useEffect, useRef } = rt;
+  const { h, useState, useEffect, useRef, useMemo } = rt;
   injectCss();
 
   /** 余额气泡（哑组件：数据与显隐由 PetCard 传入） */
   const BalanceBubble = makeBalanceBubble({ h });
   /** 碎碎念气泡（哑组件：文本与显隐由 PetCard 传入） */
-  const WhisperBubble = makeWhisperBubble({ h });
+  const WhisperBubble = makeWhisperBubble({ h, useMemo });
 
   /** 单个宠物实例（配置由容器 PetMulti 传入；碎碎念轮询/触发/气泡完全自理） */
   function PetCard({
@@ -170,7 +173,7 @@ export function makePetUI(rt: {
     workStatus: WorkStatusSnapshot | null;
     workStatusTick: number;
     /** 本宠物的「说一句话」（碎碎念/命令气泡/对话回复三合一；容器从 S 分发下来） */
-    say?: { text: string; image?: string; seq: number };
+    say?: PetSpeech & { seq: number };
     sayTick: number;
     /** 本宠物的「点播动画」指令（其他插件经 POST /anim 写进 S；容器从 S 分发下来）。
      *  注意与组件内既有的 `anim`（**当前正在播的**动画名）区分：这个只是"要播什么"的指令。 */
@@ -216,8 +219,7 @@ export function makePetUI(rt: {
     const [whisperBubbleOn, setWhisperBubbleOn] = useState(false);
     const whisperBubbleTimerRef = useRef<number | null>(null);
     // 碎碎念当前文本（本宠物独立生成的句子）+ 配图名称（开启配图时由 host 随机抽定，随文本一起来）
-    const [whisperText, setWhisperText] = useState<string | null>(null);
-    const [whisperImage, setWhisperImage] = useState<string | undefined>(undefined);
+    const [speech, setSpeech] = useState<PetSpeech | null>(null);
     // 工作状态气泡：DSH 会话状态联动（workStatusEnabled 开启时）——终态 10s 自动收起、非终态常驻
     const [workBubbleOn, setWorkBubbleOn] = useState(false);
     const workBubbleTimerRef = useRef<number | null>(null);
@@ -247,6 +249,19 @@ export function makePetUI(rt: {
 
     // ---- DOM / 状态 refs ----
     const rootRef = useRef<HTMLDivElement | null>(null);
+    useEffect(() => {
+      const root = rootRef.current;
+      const bubble = root?.querySelector<HTMLElement>('.pet-reply-bubble');
+      if (!root || !bubble) return;
+      const host = root.closest<HTMLElement>('.pet-overlay-host') ?? document.documentElement;
+      const fit = () => fitPetReply(bubble, root.getBoundingClientRect(), host.getBoundingClientRect(), size * BUBBLE_OVERLAP_RATIO);
+      const resize = new ResizeObserver(fit);
+      resize.observe(host);
+      const move = new MutationObserver(fit);
+      move.observe(root, { attributes: true, attributeFilter: ['style', 'data-corner'] });
+      fit();
+      return () => { resize.disconnect(); move.disconnect(); };
+    }, [speech, whisperBubbleOn, workBubbleOn, workStatus?.state, cfg.workStatusEnabled, size, fontPx.bubble]);
     const stageRef = useRef<HTMLDivElement | null>(null);
     const videoARef = useRef<HTMLVideoElement | null>(null);
     const videoBRef = useRef<HTMLVideoElement | null>(null);
@@ -624,7 +639,7 @@ export function makePetUI(rt: {
     useEffect(() => {
       if (!say || say.seq === prevSaySeqRef.current) return;
       prevSaySeqRef.current = say.seq;
-      triggerWhisper(say.text, say.image);
+      triggerWhisper(say);
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [sayTick]);
 
@@ -641,7 +656,7 @@ export function makePetUI(rt: {
 
     // 碎碎念触发（本宠物）：随机抽 events.whisper 动画 + 弹文本气泡（10s 消失，与动画解耦）
     // image：host 侧随机抽定的配图名称（未开配图/池为空则 undefined）——与文本同一次触发一起来
-    const triggerWhisper = (text: string, image?: string) => {
+    const triggerWhisper = (reply: PetSpeech) => {
       const pool = petAnims.events?.whisper;
       if (!pool || pool.length === 0) {
         console.error('[dsh-pet] 配置缺少 animations.events.whisper，无法播放碎碎念动画');
@@ -657,16 +672,15 @@ export function makePetUI(rt: {
           ' -> [' +
           name +
           '] 「' +
-          text +
+          reply.text +
           '」',
       );
       stopMove();
-      setWhisperText(text);
-      setWhisperImage(image);
+      setSpeech(reply);
       setWhisperBubbleOn(true);
-      // 气泡 10s 定时消失（与动画解耦；重复触发先清旧定时器）
+      // 给结构化回复留出更长的阅读时间。
       if (whisperBubbleTimerRef.current !== null) window.clearTimeout(whisperBubbleTimerRef.current);
-      whisperBubbleTimerRef.current = window.setTimeout(() => setWhisperBubbleOn(false), BUBBLE_DURATION_MS);
+      whisperBubbleTimerRef.current = window.setTimeout(() => setWhisperBubbleOn(false), reply.markdown ? REPLY_BUBBLE_DURATION_MS : BUBBLE_DURATION_MS);
       setOnce(true);
       setAnim(name);
     };
@@ -1568,18 +1582,17 @@ export function makePetUI(rt: {
     const bubbleSlot = selectBubbleSlot({
       workState: workStatus?.state,
       work: !!(workBubbleOn && workText && cfg.workStatusEnabled),
-      speech: !!(whisperBubbleOn && whisperText),
+      speech: !!(whisperBubbleOn && speech?.text),
       balance: !!(bubbleOn && balance && (cfg.balanceEnabled || balanceManual)),
     });
     const bubbleNode = (() => {
       if (bubbleSlot === 'work' && workText) {
         return h(WhisperBubble, { text: workText, on: workBubbleOn });
       }
-      if (bubbleSlot === 'whisper' && whisperText) {
+      if (bubbleSlot === 'whisper' && speech) {
         // assetRoot：配图去哪个表情包目录链取（种类独占 → 用户目录 → 包内），与动画素材同一套归属
         return h(WhisperBubble, {
-          text: whisperText,
-          image: whisperImage,
+          ...speech,
           assetRoot: cfg.assetRoot,
           on: whisperBubbleOn,
         });
@@ -1644,7 +1657,7 @@ export function makePetUI(rt: {
         // 气泡单槽（优先级见上）：余额「不可用」文字说明同样走这条通道——它只要求 balanceEnabled，
         // 不再要求 balance.ok（否则未登记余额接口的服务商完全没有反馈，这是该气泡的起因）；
         // 碎碎念/对话气泡**不受 whisperEnabled 限制**（该字段只关自动周期轮询的触发，见上头
-        // useEffect 的门控）；whisperText 只由 triggerWhisper 设置，所以说话气泡照常渲染。
+        // useEffect 的门控）；对话回复通过同一个气泡槽显示。
         bubbleNode,
         h('div', {
           ref: stageRef,
@@ -1786,7 +1799,7 @@ export function makePetUI(rt: {
     // 为什么不再按"有没有启用某功能"决定要不要轮询：说话（命令触发）与宠物开关无关，
     // 今天每只宠物的 /broadcast 轮询本来就不受开关门控——统一后至少不比现在多。
     const [sayTick, setSayTick] = useState(0);
-    const sayRef = useRef<Record<string, { text: string; image?: string; seq: number }>>({});
+    const sayRef = useRef<Record<string, PetSpeech & { seq: number }>>({});
     const [animCueTick, setAnimCueTick] = useState(0);
     const animCueRef = useRef<Record<string, { name: string; seq: number }>>({});
     useEffect(() => {

@@ -128,15 +128,17 @@ export function readBalance(leaf: StateLeaf): { state: BalanceState; manual: boo
 }
 
 /**
- * 类型收窄：宠物说话叶子 → `{ text, image? }`（形状非法 / 空文本 → null，消费端跳过这一拍）。
+ * 类型收窄：宠物说话叶子 → 文本、可选配图和 Markdown 标记（形状非法 / 空文本 → null）。
  * 碎碎念、命令气泡、对话回复共用这一个叶子——前端本来就是同一条展示链路
  * （同一个 triggerWhisper、同一个气泡槽、同一批 events.whisper 动画）。
  */
-export function readSay(leaf: StateLeaf): { text: string; image?: string } | null {
+export type PetSpeech = { text: string; image?: string; markdown: boolean };
+
+export function readSay(leaf: StateLeaf): PetSpeech | null {
   if (!leaf.data || typeof leaf.data !== 'object') return null;
-  const d = leaf.data as { text?: unknown; image?: unknown };
+  const d = leaf.data as Partial<PetSpeech>;
   if (typeof d.text !== 'string' || !d.text) return null;
-  return { text: d.text, image: typeof d.image === 'string' ? d.image : undefined };
+  return { text: d.text, image: typeof d.image === 'string' ? d.image : undefined, markdown: d.markdown === true };
 }
 
 /**

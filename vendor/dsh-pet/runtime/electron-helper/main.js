@@ -670,6 +670,14 @@ app.whenReady().then(async () => {
   }
 
   const ownsPage = contents => !!contents && [...windows.values()].some(win => !win.isDestroyed() && win.webContents === contents);
+  ipcMain.on('pet:open-reply-link', (event, value) => {
+    if (!ownsPage(event.sender) || event.senderFrame !== event.sender.mainFrame || typeof value !== 'string') return;
+    if (!BrowserWindow.fromWebContents(event.sender)?.isFocused()) return;
+    let url;
+    try { url = new URL(value); } catch { return; }
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return;
+    void shell.openExternal(url.href).catch(() => console.warn('[dsh-pet] 无法打开回复中的链接'));
+  });
   ipcMain.handle('pet:capture-screen', async event => {
     if (!ownsPage(event.sender) || event.senderFrame !== event.sender.mainFrame) throw new Error('无法截屏');
     const win = BrowserWindow.fromWebContents(event.sender);

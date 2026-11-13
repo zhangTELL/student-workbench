@@ -12,6 +12,8 @@ import {
 } from '../shared/whisper';
 import type { ReactNode } from 'react';
 import type { jsx } from 'react/jsx-runtime';
+import type { useMemo } from 'react';
+import { injectReplyMarkdownCss, renderReplyMarkdown } from '../shared/reply-markdown';
 
 /** 气泡内联样式：白色半透明圆润泡 + 底部小尾巴指向宠物；字体用上首软糖体（本地打包，稳定）。
  * 尺寸分两类锚点：
@@ -140,38 +142,42 @@ export function makeBalanceBubble(rt: { h: typeof jsx }): (props: { state: Balan
  */
 export function makeWhisperBubble(rt: {
   h: typeof jsx;
-}): (props: { text: string; image?: string; assetRoot?: string; on: boolean }) => ReactNode {
-  const { h } = rt;
+  useMemo: typeof useMemo;
+}): (props: { text: string; image?: string; assetRoot?: string; markdown?: boolean; on: boolean }) => ReactNode {
+  const { h, useMemo } = rt;
   injectBubbleCss();
   injectMemeBubbleCss();
+  injectReplyMarkdownCss();
 
   return function WhisperBubble({
     text,
     image,
     assetRoot,
+    markdown,
     on,
   }: {
     text: string;
     image?: string;
     assetRoot?: string;
+    markdown?: boolean;
     on: boolean;
   }) {
-    const rows = whisperBubbleView({ ok: true, text, ts: 0 });
     const key = String(image ?? '').trim();
+    const picture = key ? h('img', {
+      key: 'img',
+      className: MEME_IMG_CLASS,
+      src: memeImageUrl(key, '/dsh-pet-7340', assetRoot),
+      alt: key,
+    }) : null;
+    const html = useMemo(() => markdown ? { __html: renderReplyMarkdown(text) } : null, [markdown, text]);
+    const content = html
+      ? h('div', { key: 'reply', className: 'reply-markdown', dangerouslySetInnerHTML: html })
+      : rowsToNodes(h, whisperBubbleView({ ok: true, text, ts: 0 }));
     return h('div', {
-      className: 'dsh-pet-bubble dsh-pet-whisper' + (key ? ' ' + MEME_BUBBLE_CLASS : '') + (on ? ' is-on' : ''),
-      children: key
-        ? [
-            h('img', {
-              key: 'img',
-              className: MEME_IMG_CLASS,
-              // 浏览器端基址就是本页 origin 下的路由前缀（与上面 @font-face 同一个字面量）
-              src: memeImageUrl(key, '/dsh-pet-7340', assetRoot),
-              alt: key,
-            }),
-            rowsToNodes(h, rows),
-          ]
-        : rowsToNodes(h, rows),
+      className: 'dsh-pet-bubble dsh-pet-whisper' + (key ? ' ' + MEME_BUBBLE_CLASS : '') + (markdown ? ' pet-reply-bubble' : '') + (on ? ' is-on' : ''),
+      children: markdown
+        ? h('div', { className: 'pet-reply-scroll', tabIndex: 0, 'aria-label': '桌宠回复', children: [picture, content] })
+        : [picture, content],
     });
   };
 }

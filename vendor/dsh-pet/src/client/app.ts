@@ -19,7 +19,7 @@ export function makeFactory(): (require: (mod: string) => any) => any {
     const module = { exports: {} };
 
     const react: typeof ReactNS = require('react');
-    const { useEffect, useRef, useState, useCallback } = react;
+    const { useEffect, useRef, useState, useCallback, useMemo } = react;
     const { jsx: h } = require('react/jsx-runtime');
 
     // 平台种子模块（DSH web 前端壳提供，与 react / cordis 并列）：取不到就退化成
@@ -56,7 +56,7 @@ export function makeFactory(): (require: (mod: string) => any) => any {
     }
 
     // 宠物页面（overlay）与配置设置页：组件各自独立文件，这里只组装 + 注册
-    const PetMulti = makePetUI({ h, useState, useEffect, useRef });
+    const PetMulti = makePetUI({ h, useState, useEffect, useRef, useMemo });
 
     const name = 'pet';
     // commandUi 写成服务依赖（与官方 client-ui-permission-presets 的写法一致）：

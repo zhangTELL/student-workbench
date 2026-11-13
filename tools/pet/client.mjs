@@ -1,11 +1,11 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { jsx as h } from 'react/jsx-runtime'
 import { createRoot } from 'react-dom/client'
 import { makePetUI } from '../../vendor/dsh-pet/src/client/pet.ts'
 import { petBridge } from '../../vendor/dsh-pet/src/client/settings.ts'
 import { initNotify, reloadNotifications, requestNotificationPermission } from '../../vendor/dsh-pet/src/client/notify.ts'
 
-const hooks = { h, useState, useEffect, useRef, useCallback }
+const hooks = { h, useState, useEffect, useRef, useCallback, useMemo }
 const PetOverlay = makePetUI(hooks)
 export function mountPet(element) {
   const root = createRoot(element)

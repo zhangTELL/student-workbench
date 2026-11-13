@@ -27,12 +27,18 @@ importers:
       concurrently:
         specifier: ^9.1.2
         version: 9.2.4
+      dompurify:
+        specifier: 3.4.17
+        version: 3.4.17
       esbuild:
         specifier: 0.25.12
         version: 0.25.12
       fflate:
         specifier: 0.8.3
         version: 0.8.3
+      marked:
+        specifier: 14.0.0
+        version: 14.0.0
 
   client:
     dependencies:
