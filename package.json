@@ -1,7 +1,7 @@
 {
   "name": "yoshinove-workbench",
   "private": true,
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "学生工作台：课表/提醒/学习通/健康跑/笔记/AI实验区",
   "scripts": {
     "dev": "node tools/setup-pet.mjs && concurrently -n server,client -c blue,green \"pnpm --filter @wb/server dev\" \"pnpm --filter @wb/client dev\"",
